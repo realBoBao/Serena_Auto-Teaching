@@ -1,10 +1,10 @@
 /**
  * Tests for Orchestrator — Event Routing
- * ESM-compatible: mock bằng cách inject global
+ * Uses jest.unstable_mockModule for ESM compatibility
  */
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
-// ── Mock RouterAgent bằng global injection ────────────────────────────────
+// ── Mock RouterAgent ──
 const mockRoute = jest.fn(async (intent, context) => {
   if (intent === 'RAG') {
     return {
@@ -13,14 +13,21 @@ const mockRoute = jest.fn(async (intent, context) => {
       cached: false,
     };
   }
+  if (intent === 'VISION') {
+    return {
+      result: { success: true, analysis: 'Mocked vision analysis' },
+      agent: 'vision',
+      cached: false,
+    };
+  }
   return { result: { message: `Handled: ${intent}` }, agent: intent.toLowerCase(), cached: false };
 });
 
-// Inject mock vào global để Orchestrator có thể dùng
-globalThis.__mockRouterAgent = { route: mockRoute };
+jest.unstable_mockModule('../agents/RouterAgent.js', () => ({
+  routerAgent: { route: mockRoute },
+}));
 
-// ── Import Orchestrator ────────────────────────────────────────────────────
-// Orchestrator import RouterAgent dynamically, nên mock cần được set trước
+// ── Import Orchestrator after mock setup ──
 const { orchestrator } = await import('../Orchestrator.js');
 
 describe('Orchestrator - Event Routing', () => {

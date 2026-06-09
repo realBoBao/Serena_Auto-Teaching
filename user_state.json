@@ -68,6 +68,34 @@
     {
       "topic": "test-topic",
       "timestamp": "2026-06-09T04:06:27.215Z"
+    },
+    {
+      "topic": "test-topic",
+      "timestamp": "2026-06-09T06:43:56.556Z"
+    },
+    {
+      "topic": "test-topic",
+      "timestamp": "2026-06-09T06:48:53.017Z"
+    },
+    {
+      "topic": "test-topic",
+      "timestamp": "2026-06-09T06:57:40.587Z"
+    },
+    {
+      "topic": "test-topic",
+      "timestamp": "2026-06-09T07:03:44.142Z"
+    },
+    {
+      "topic": "test-topic",
+      "timestamp": "2026-06-09T07:07:20.759Z"
+    },
+    {
+      "topic": "test-topic",
+      "timestamp": "2026-06-09T07:09:46.751Z"
+    },
+    {
+      "topic": "test-topic",
+      "timestamp": "2026-06-09T07:34:20.893Z"
     }
   ],
   "transitionCounts": {
@@ -75,7 +103,7 @@
       "test-topic": 1
     },
     "test-topic": {
-      "test-topic": 15
+      "test-topic": 22
     }
   },
   "interests": [

@@ -182,7 +182,7 @@ async function checkCatchUp() {
     try {
       // Chạy pipeline và lấy output (timeout 10 phút)
       const { execSync } = await import('child_process');
-      const output = execSync(`node pipeline_report_v2.js`, {
+      const output = execSync(`node pipeline_report_v2.js --no-webhook`, {
         encoding: 'utf8',
         timeout: 600000,
         maxBuffer: 10 * 1024 * 1024, // 10MB buffer

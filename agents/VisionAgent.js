@@ -226,7 +226,9 @@ export async function analyzeImage(imageBuffer, mimeType, userPrompt = '') {
           throw new Error(`Rate limit (429): ${errText.slice(0, 200)}`);
         }
         if (res.status === 400) {
-          throw new Object.assign(new Error(`Bad request (400): ${errText.slice(0, 200)}`), { noRetry: true });
+          const err400 = new Error(`Bad request (400): ${errText.slice(0, 200)}`);
+          err400.noRetry = true;
+          throw err400;
         }
         throw new Error(`Gemini Vision API error ${res.status}: ${errText.slice(0, 200)}`);
       }

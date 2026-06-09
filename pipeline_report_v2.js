@@ -166,18 +166,28 @@ async function githubSearch(topic, perPage = GITHUB_PER_PAGE, minStars = GITHUB_
 }
 
 async function fetchRepoReadmeAndAnalyze(owner, repo, stars){
-  await execp(`node fetch_repo_files.js ${owner} ${repo}`);
-  const base = path.resolve('./artifacts', `${owner}-${repo}`);
-  let readmeFile = null;
-  try{
-    const files = await fs.readdir(base);
-    for(const f of files){
-      if(f.toLowerCase().startsWith('readme')){ readmeFile = path.join(base, f); break; }
+  // Dùng repo_analyzer thay vì spawn child process
+  const { analyzeReadme, fetchFileContent } = await import('./lib/repo_analyzer.js');
+  const githubToken = process.env.GITHUB_TOKEN || '';
+
+  // Thử lấy README trực tiếp từ GitHub
+  const readmeContent = await fetchFileContent(owner, repo, 'README.md', githubToken);
+  if (!readmeContent) {
+    // Fallback: thử các variant
+    for (const name of ['readme.md', 'README.rst', 'README.txt', 'readme.txt', 'README']) {
+      const c = await fetchFileContent(owner, repo, name, githubToken);
+      if (c) {
+        const { analyzeText } = await import('./lib/repo_analyzer.js');
+        const analysis = await analyzeText(c, 'readme', { owner, repo });
+        return { summary: analysis?.summary?.join('\n') || '', category: analysis?.category || 'Backend' };
+      }
     }
-  }catch(e){/*ignore*/}
-  if(!readmeFile) return { error: 'no readme' };
-  const metadata = `Stars: ${stars}, Repo: ${owner}/${repo}`;
-  await execp(`node analyze_text_gemini.js "${readmeFile}" "${metadata.replace(/"/g, '\\"')}"`);
+    return { error: 'no readme' };
+  }
+
+  const { analyzeText } = await import('./lib/repo_analyzer.js');
+  const analysis = await analyzeText(readmeContent, 'readme', { owner, repo });
+  return { summary: analysis?.summary?.join('\n') || '', category: analysis?.category || 'Backend' };
   const summaryPath = path.join(base, 'summary.txt');
   let summary = '';
   let category = 'Backend';
@@ -450,7 +460,13 @@ async function analyzeWebItemAndUpsert(itemKey, metadata, text, category = 'Back
   await fs.writeFile(sourcePath, text, 'utf8');
   const analysisMetadata = `${metadata.source || metadata.url || ''}`;
   try{
-    await execp(`node analyze_text.js "${sourcePath}" "${analysisMetadata.replace(/"/g, '\\"')}"`);
+    // Dùng analyzeText trực tiếp thay vì spawn child process
+    const { analyzeText } = await import('./lib/repo_analyzer.js');
+    const analysis = await analyzeText(text, metadata.type || 'web', { source: itemKey });
+    // Lưu summary vào file để backward compat
+    if (analysis?.summary) {
+      await fs.writeFile(path.join(baseDir, 'summary.txt'), analysis.summary.join('\n'), 'utf8');
+    }
   }catch(e){
     console.warn('Web item analysis failed for', itemKey, e.message||e);
   }
@@ -517,7 +533,12 @@ async function fetchArxivPaperAndAnalyze(paper){
   await fs.writeFile(descPath, text, 'utf8');
 
   try{
-    await execp(`node analyze_text_gemini.js "${descPath}" "arXiv paper: ${paper.id.replace(/"/g,'\\\"')}"`);
+    // Dùng analyzeText trực tiếp thay vì spawn child process
+    const { analyzeText } = await import('./lib/repo_analyzer.js');
+    const analysis = await analyzeText(text, 'arxiv', { source: paper.id });
+    if (analysis?.summary) {
+      await fs.writeFile(path.join(baseDir, 'summary.txt'), analysis.summary.join('\n'), 'utf8');
+    }
   }catch(e){
     console.warn('arXiv analysis failed for', paper.id, e.message || e);
   }
@@ -560,7 +581,10 @@ async function fetchVideoAndAnalyze(video){
         console.log('Fallback description saved for video', videoId);
       }
     }
-    await execp(`node analyze_text_gemini.js "${descPath}" "${metadata.replace(/"/g, '\\"')}"`);
+    // Dùng analyzeText trực tiếp cho web items
+    const { analyzeText } = await import('./lib/repo_analyzer.js');
+    const webContent = await fs.readFile(descPath, 'utf8').catch(() => '');
+    const analysis = await analyzeText(webContent, 'web', { source: metadata });
     summary = await fs.readFile(path.resolve('./artifacts', `video-${videoId}`, 'summary.txt'),'utf8');
     const analysisJson = await fs.readFile(path.resolve('./artifacts', `video-${videoId}`, 'analysis.json'),'utf8');
     const parsed = JSON.parse(analysisJson);
@@ -1037,9 +1061,10 @@ async function run(topic = null, isForce = false){
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // SINGLE AGGREGATED WEBHOOK — Luôn gửi, dù có source hay không
+  // SINGLE AGGREGATED WEBHOOK — Chỉ gửi khi KHÔNG phải catch-up (--no-webhook)
   // ═══════════════════════════════════════════════════════════════
-  if (process.env.DISCORD_WEBHOOK) {
+  const noWebhook = process.argv.includes('--no-webhook');
+  if (process.env.DISCORD_WEBHOOK && !noWebhook) {
     try {
       const { sendAggregatedWebhook } = await import('./notify_discord.js');
 
@@ -1060,15 +1085,42 @@ async function run(topic = null, isForce = false){
         if (stackoverflow.length === 0) errorSources.push('StackOverflow');
         if (hackerNews.length === 0) errorSources.push('HackerNews');
         if (papers.length === 0) errorSources.push('arXiv');
+        if (facebookPosts.length === 0) errorSources.push('Facebook/Tavily');
 
-        await sendAggregatedWebhook({
-          topic: chosenTopic,
-          results: [],
-          bullets: '',
-          isError: true,
-          errorMessage: `No sources found. Failed sources: ${errorSources.join(', ')}`,
-        });
-        console.log(`[Webhook] ⚠️ Sent error notification — no sources found`);
+        // ── Fallback: Tạo report từ knowledge base khi search API fail ──
+        console.log('[Pipeline] All search APIs failed — generating report from knowledge base...');
+        try {
+          const { ask: llmAsk } = await import('./lib/llm.js');
+          const fallbackReport = await llmAsk(
+            `Hãy tạo một báo tổng hợp về chủ đề "${chosenTopic}" dựa trên kiến thức của bạn. Bao gồm: 1) Tổng quan chủ đề, 2) Các khái niệm quan trọng, 3) Best practices, 4) Tài liệu tham khảo gợi ý. Trả lời bằng tiếng Việt, định dạng Markdown.`,
+            { maxTokens: 2000, temperature: 0.3 }
+          );
+
+          // Gửi webhook với fallback content
+          await sendAggregatedWebhook({
+            topic: `${chosenTopic} (Fallback — Search APIs unavailable)`,
+            results: [{
+              title: `📚 Knowledge Base Summary: ${chosenTopic}`,
+              url: '',
+              type: 'knowledge-base',
+              score: 0.5,
+              category: 'Backend',
+            }],
+            bullets: fallbackReport.answer?.slice(0, 500) || 'Generated from knowledge base',
+            isError: false,
+          });
+          console.log('[Webhook] ✓ Sent fallback report from knowledge base');
+        } catch (llmErr) {
+          // Nếu cả LLM fail → gửi thông báo lỗi
+          await sendAggregatedWebhook({
+            topic: chosenTopic,
+            results: [],
+            bullets: '',
+            isError: true,
+            errorMessage: `All search APIs failed (${errorSources.join(', ')}). LLM fallback also failed: ${llmErr?.message || 'unknown'}`,
+          });
+          console.log('[Webhook] ⚠️ Sent error notification — all sources and LLM failed');
+        }
       }
     } catch (err) {
       console.error('[Webhook] ✗ Aggregated webhook failed:', err?.message || err);
