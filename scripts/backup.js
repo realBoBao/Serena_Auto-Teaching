@@ -119,10 +119,14 @@ export async function restoreBackup(backupFile) {
 
   // Read manifest
   try {
-    const manifest = JSON.parse(await readFile(path.join(backupDir, 'manifest.json'), 'utf8'));
+    const manifestRaw = await readFile(path.join(backupDir, 'manifest.json'), 'utf8');
+    if (!manifestRaw || manifestRaw.trim().length === 0) {
+      throw new Error('Empty manifest file');
+    }
+    const manifest = JSON.parse(manifestRaw);
     console.log(`[Restore] Backup from: ${manifest.timestamp}`);
-  } catch {
-    console.log('[Restore] ⚠️  No manifest found, proceeding anyway');
+  } catch (err) {
+    console.log(`[Restore] ⚠️  Manifest error: ${err.message}, proceeding anyway`);
   }
 
   // Restore database files

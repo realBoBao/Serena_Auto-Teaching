@@ -239,21 +239,21 @@ function heuristicRelevance(title, description){
 
   if(strongNegative.some((term) => text.includes(term))){
     if(!strongPositive.some((term) => text.includes(term))){
-      return { isRelevant: false, reason: 'Non-technical content detected' };
+      return { isRelevant: false, confidence: 'high', reason: 'Non-technical content detected' };
     }
   }
   
   if(strongPositive.some((term) => text.includes(term))){
-    return { isRelevant: true, reason: 'Technical content confirmed' };
+    return { isRelevant: true, confidence: 'medium', reason: 'Technical content confirmed' };
   }
 
   const weakPositive = ['system', 'design', 'architecture', 'learning', 'tutorial', 'course', 'engineering'];
   const weakCount = weakPositive.filter((term) => text.includes(term)).length;
   if(weakCount >= 2){
-    return { isRelevant: true, reason: 'Technical keywords detected' };
+    return { isRelevant: true, confidence: 'low', reason: 'Technical keywords detected' };
   }
 
-  return { isRelevant: false, reason: 'Insufficient technical indicators' };
+  return { isRelevant: false, confidence: 'medium', reason: 'Insufficient technical indicators' };
 }
 
 async function preCheckRelevance(title, description){
