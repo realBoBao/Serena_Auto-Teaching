@@ -257,6 +257,9 @@ class RouterAgent {
         return await module.handleInteraction(context.topic);
 
       case 'vision':
+        if (process.env.ENABLE_VISION === 'false') {
+          return { error: 'Vision Agent hiện đang bị tắt (ENABLE_VISION=false). Bật lại trong .env để sử dụng.' };
+        }
         // VISION_PLANNER: describe image → return structured text for PlannerAgent
         if (intent === 'VISION_PLANNER') {
           return await module.describeImageForPlanner(context.imageBuffer, context.mimeType, context.query);
@@ -265,7 +268,16 @@ class RouterAgent {
         return await module.analyzeImageBuffer(context.imageBuffer, context.mimeType, context.prompt);
 
       case 'voice':
+        if (process.env.ENABLE_VOICE === 'false') {
+          return { error: 'Voice Agent hiện đang bị tắt (ENABLE_VOICE=false). Bật lại trong .env để sử dụng.' };
+        }
         return await module.processVoiceMessage(context.audioBuffer, context.options);
+
+      case 'manim':
+        if (process.env.ENABLE_MANIM === 'false') {
+          return { error: 'Manim Agent hiện đang bị tắt (ENABLE_MANIM=false). Bật lại trong .env để sử dụng.' };
+        }
+        // ... rest of manim handling
 
       case 'planner':
         return await module.createPlan({
