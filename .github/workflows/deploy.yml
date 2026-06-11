@@ -33,8 +33,11 @@ jobs:
             echo "📁 Working dir: $(pwd)"
             
             echo "📥 Pulling latest code..."
-            # Use deploy key for git pull (avoids interactive auth)
-            GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" git pull origin main 2>&1 || git pull origin main 2>&1
+            # Try SSH first, then HTTPS with token
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" git pull origin main 2>&1 \
+              || git remote set-url origin https://${{ secrets.GITHUB_TOKEN }}@github.com/realBoBao/Serena_Project00_Auto-Teaching.git 2>&1 \
+              && git pull origin main 2>&1 \
+              || { echo "❌ Git pull failed"; exit 1; }
             
             echo "📦 Installing dependencies..."
             npm ci --only-production 2>&1 | tail -5
