@@ -27,8 +27,15 @@ const state = {
   maxEdges: 10000,
 };
 
-// ── Neo4j Connection ──
+// ── Neo4j Connection (with timeout) ──
 async function connectNeo4j() {
+  // Skip if Neo4j is disabled
+  if (process.env.NEO4J_DISABLED === 'true' || !process.env.NEO4J_URI) {
+    console.log('[GraphAgent] Neo4j disabled, using in-memory graph');
+    state.driver = null;
+    return;
+  }
+
   try {
     const neo4j = await import('neo4j-driver');
     state.driver = neo4j.driver(
@@ -36,7 +43,13 @@ async function connectNeo4j() {
       neo4j.auth.basic(state.neo4jUser, state.neo4jPass),
       { maxConnectionPoolSize: 5 }
     );
-    await state.driver.verifyConnectivity();
+
+    // Timeout for connectivity check — don't block startup
+    await Promise.race([
+      state.driver.verifyConnectivity(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Neo4j connection timeout')), 3000)),
+    ]);
+
     console.log('🌐 [GraphAgent] Neo4j connected successfully');
 
     const session = state.driver.session();
@@ -46,14 +59,17 @@ async function connectNeo4j() {
       await session.close();
     }
   } catch (err) {
-    console.warn('⚠️ [GraphAgent] Neo4j unavailable, falling back to safe In-Memory Graph:', err.message);
+    console.warn('[GraphAgent] Neo4j unavailable (' + err.message + '), using in-memory graph');
     state.driver = null;
+    // Don't rethrow — in-memory graph is a valid fallback
   }
 }
 
 // ── Job Processor ──
 async function processJob(job) {
-  const { name, data } = job;
+  // Normalize job format (BullMQ vs in-memory)
+  const name = job.name || job.data?.name;
+  const data = job.data || {};
   console.log(`⚙️ [GraphAgent] Processing job: ${name}`);
 
   switch (name) {
@@ -327,13 +343,31 @@ async function start() {
   if (state.isRunning) return;
   state.isRunning = true;
 
-  await connectNeo4j();
+  // Try Neo4j but don't fail if unavailable
+  try {
+    await connectNeo4j();
+  } catch (err) {
+    console.warn('[GraphAgent] Neo4j connection failed, using in-memory graph:', err.message);
+    state.driver = null;
+  }
 
-  state.worker = createWorker(
-    QueueName.GRAPH,
-    (job) => processJob(job),
-    { concurrency: 1 } // Giữ Concurrency 1 để chống đụng độ Transaction trong Neo4j
-  );
+  // Create worker (works in both Redis and memory mode)
+  try {
+    state.worker = createWorker(
+      QueueName.GRAPH,
+      async (job) => {
+        try {
+          return await processJob(job);
+        } catch (err) {
+          console.error('[GraphAgent] Job processing error:', err?.message || err);
+          return { error: err?.message || 'unknown error' };
+        }
+      },
+      { concurrency: 1 }
+    );
+  } catch (err) {
+    console.error('[GraphAgent] Failed to create worker:', err.message);
+  }
 
   console.log('🚀 [GraphAgent] Background Service Started');
 }
