@@ -89,7 +89,16 @@ async function runMemoryConsolidation() {
   }
 }
 
+// ── Pipeline lock để tránh chạy đồng thời ──
+let _pipelineRunning = false;
+
 async function runPipeline() {
+  // Nếu pipeline đang chạy → bỏ qua
+  if (_pipelineRunning) {
+    console.log('[scheduler] Pipeline đang chạy, bỏ qua lần này');
+    return;
+  }
+
   const args = ['pipeline_report_v2.js'];
   if (TOPIC_OVERRIDE) args.push(TOPIC_OVERRIDE);
   if (FORCE_RUN) args.push('--force');
@@ -97,23 +106,24 @@ async function runPipeline() {
   console.log(`[scheduler] Starting pipeline at ${new Date().toISOString()}`);
   console.log('[scheduler] Command:', 'node', args.join(' '));
 
+  _pipelineRunning = true;
+
   const child = spawn('node', args, { stdio: 'inherit' });
 
   child.on('exit', async (code, signal) => {
+    _pipelineRunning = false;
     if (signal) {
       console.log(`[scheduler] Pipeline process terminated with signal ${signal}`);
-      // Ghi timestamp SAU khi xong — tránh catch-up chạy lại
       await saveLastRun('pipeline');
     } else {
       console.log(`[scheduler] Pipeline process exited with code ${code}`);
-      // Ghi timestamp SAU khi xong — dù success hay fail
       await saveLastRun('pipeline');
     }
   });
 
   child.on('error', (err) => {
+    _pipelineRunning = false;
     console.error('[scheduler] Failed to start pipeline process:', err.message || err);
-    // KHÔNG ghi timestamp nếu fail để catch-up có thể retry
   });
 }
 
