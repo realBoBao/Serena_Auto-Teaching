@@ -43,15 +43,15 @@ async function getRandomSourcesFromDb(query, topic, limit = 10) {
     }
   } catch { /* ignore */ }
 
-  // 2. Fallback: lấy random từ SQLite
+  // 2. Fallback: lấy sources từ SQLite, cũ nhất trước (oldest first)
   try {
     const { getDb } = await import('../lib/flashcard_db.js');
     const db = getDb();
     const rows = db.prepare(`
-      SELECT DISTINCT question as title, answer as description, source, category
+      SELECT DISTINCT question as title, answer as description, source, category, created_at
       FROM flashcards
       WHERE category LIKE ? OR question LIKE ?
-      ORDER BY RANDOM()
+      ORDER BY created_at ASC
       LIMIT ?
     `).all(`%${topic}%`, `%${query}%`, limit);
     if (rows.length > 0) {
@@ -1189,38 +1189,44 @@ export async function answerQuestion(query, options = {}) {
   }
 
   // Web search fallback
+  let webResults = [];
   try {
     const webQuery = await translateToEnglish(cleanQuery);
-    const webResults = await webScout(webQuery);
+    webResults = await webScout(webQuery);
+  } catch (err) {
+    logger.warn('Web search failed:', err?.message || String(err));
+  }
 
-    if (webResults.length) {
-      const context = formatWebContext(webResults);
+  // Nếu có web results → thử synthesize với LLM
+  if (webResults.length) {
+    // ── Source Deduplication: Loại source đã hiển thị cho user ──
+    const userId = options.userId || 'anonymous';
+    const seenSources = await getSeenSources(userId);
+    const freshWebResults = webResults.filter(r => {
+      const sid = (r.url || r.title || '').toLowerCase().slice(0, 60);
+      return !seenSources.has(sid);
+    });
+    // Lưu sources hiện tại cho lần sau
+    for (const r of webResults) {
+      const sid = (r.url || r.title || '').toLowerCase().slice(0, 60);
+      await markSourceSeen(userId, sid);
+    }
+    // Nếu có source mới → dùng source mới, không thì dùng tất cả
+    const finalResults = freshWebResults.length > 0 ? freshWebResults : webResults;
+
+    // Thử synthesize với LLM
+    try {
+      const context = formatWebContext(finalResults);
       const answer = await synthesizeAnswer(cleanQuery, context, 'web');
 
       const gate = await selfReflectAnswerGate({
         query: cleanQuery,
         answer,
-        results: webResults,
+        results: finalResults,
         source: 'web',
       });
 
-      // ── Source Deduplication: Loại source đã hiển thị cho user ──
-      const userId = options.userId || 'anonymous';
-      const seenSources = await getSeenSources(userId);
-      const freshWebResults = webResults.filter(r => {
-        const sid = (r.url || r.title || '').toLowerCase().slice(0, 60);
-        return !seenSources.has(sid);
-      });
-      // Lưu sources hiện tại cho lần sau
-      for (const r of webResults) {
-        const sid = (r.url || r.title || '').toLowerCase().slice(0, 60);
-        await markSourceSeen(userId, sid);
-      }
-      // Nếu có source mới → dùng source mới, không thì dùng tất cả
-      const finalResults = freshWebResults.length > 0 ? freshWebResults : webResults;
-
       if (gate.pass) {
-        // ── Cross-Model Learning: học từ response tốt ──
         if (options.userId && getUserPreference(options.userId).learningEnabled) {
           learnFromResponse(cleanQuery, answer, 'web', finalResults).catch(() => {});
           updateSourcePreference(predictedTopic, 'web', gate.pass ? 0.8 : 0.3);
@@ -1229,14 +1235,25 @@ export async function answerQuestion(query, options = {}) {
         return { ...scored, source: 'web', results: finalResults, predictedTopic, sourcesFormatted: formatSourcesWithScore(finalResults, 'web') };
       }
 
+      // LLM gate fail → trả về web sources với fallback message
       const fallbackSnippet = formatRetrievedSnippets(finalResults);
-      const safe = gate.safeAnswer || `Toi khong dam bao cau tra loi nay hoan toan dung vi du lieu hien co chua du. Duoi day la cac mảnh thong tin de ban doi chieu:\n\n${fallbackSnippet}`;
+      const safe = gate.safeAnswer || `⚠️ Tôi tìm thấy các nguồn sau nhưng chưa chắc chắn:\n\n${fallbackSnippet}`;
       const scored = await applyConfidenceScoring({ question: cleanQuery, answer: safe, results: finalResults });
-      return { ...scored, source: 'web', results: finalResults, predictedTopic, sourcesFormatted: formatSourcesWithScore(finalResults, 'web') };
+      return { ...scored, source: 'web-partial', results: finalResults, predictedTopic, sourcesFormatted: formatSourcesWithScore(finalResults, 'web') };
+    } catch (llmErr) {
+      // LLM synthesize fail → trả về web sources trực tiếp
+      logger.warn('[RagAgent] Web LLM synthesize failed, returning raw sources:', llmErr?.message);
+      const fallbackSnippet = formatRetrievedSnippets(finalResults);
+      const answer = `⚠️ LLM tạm thời không khả dụng. Dưới đây là các nguồn tìm được:\n\n${fallbackSnippet}`;
+      return {
+        answer,
+        source: 'web-raw',
+        results: finalResults,
+        predictedTopic,
+        sourcesFormatted: formatSourcesWithScore(finalResults, 'web'),
+        confidence: { score: 0.4, level: 'low' },
+      };
     }
-  } catch (err) {
-    logger.warn('Web synthesize failed:', err?.message || String(err));
-    lastError = err;
   }
 
   // ── Fallback: Khi LLM hỏng, lấy random sources từ database ──
