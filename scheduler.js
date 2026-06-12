@@ -89,7 +89,7 @@ async function runMemoryConsolidation() {
   }
 }
 
-function runPipeline() {
+async function runPipeline() {
   const args = ['pipeline_report_v2.js'];
   if (TOPIC_OVERRIDE) args.push(TOPIC_OVERRIDE);
   if (FORCE_RUN) args.push('--force');
@@ -97,15 +97,19 @@ function runPipeline() {
   console.log(`[scheduler] Starting pipeline at ${new Date().toISOString()}`);
   console.log('[scheduler] Command:', 'node', args.join(' '));
 
+  // Đánh dấu pipeline đang chạy
+  await saveLastRun('pipeline', 'running');
+
   const child = spawn('node', args, { stdio: 'inherit' });
 
-  child.on('exit', (code, signal) => {
+  child.on('exit', async (code, signal) => {
     if (signal) {
       console.log(`[scheduler] Pipeline process terminated with signal ${signal}`);
+      await saveLastRun('pipeline', 'failed');
     } else {
       console.log(`[scheduler] Pipeline process exited with code ${code}`);
+      await saveLastRun('pipeline', code === 0 ? 'done' : 'failed');
     }
-    saveLastRun('pipeline').catch(() => {});
   });
 
   child.on('error', (err) => {
@@ -138,25 +142,35 @@ console.log('[scheduler] Run on start:', RUN_ON_START);
 // ── Catch-up: Kiểm tra cron jobs bị lỡ khi máy sleep/reboot ────────────────
 const CATCH_UP_FILE = './.scheduler_last_run.json';
 
+// Atomic write/read utilities (loaded once)
+import { writeJsonAtomic, readJsonSafe } from './lib/atomic_write.js';
+
 async function checkCatchUp() {
-  const fs = await import('fs');
   const now = new Date();
   const currentHour = now.getHours();
   const currentDay = now.getDay(); // 0=Sun, 1=Mon, ...
 
-  // Đọc last run times
-  let lastRuns = {};
-  try {
-    if (fs.existsSync(CATCH_UP_FILE)) {
-      lastRuns = JSON.parse(fs.readFileSync(CATCH_UP_FILE, 'utf8'));
-    }
-  } catch { /* ignore */ }
+  // Đọc last run times (atomic read with backup recovery)
+  const lastRuns = await readJsonSafe(CATCH_UP_FILE, {});
 
-  const lastPipeline = lastRuns.pipeline ? new Date(lastRuns.pipeline) : null;
-  const lastMemory = lastRuns.memory ? new Date(lastRuns.memory) : null;
-  const lastBackup = lastRuns.backup ? new Date(lastRuns.backup) : null;
-  const lastEvo = lastRuns.evo ? new Date(lastRuns.evo) : null;
-  const lastGraph = lastRuns.graph ? new Date(lastRuns.graph) : null;
+  // Parse last runs — hỗ trợ cả format cũ (string) và mới (object {ts, status})
+  const parseLastRun = (entry) => {
+    if (!entry) return null;
+    if (typeof entry === 'string') return { ts: new Date(entry), status: 'done' };
+    return { ts: new Date(entry.ts), status: entry.status || 'done' };
+  };
+
+  const lastPipeline = parseLastRun(lastRuns.pipeline);
+  const lastMemory = parseLastRun(lastRuns.memory);
+  const lastBackup = parseLastRun(lastRuns.backup);
+  const lastEvo = parseLastRun(lastRuns.evo);
+  const lastGraph = parseLastRun(lastRuns.graph);
+
+  // Nếu job đang chạy → bỏ qua, không trigger lại
+  if (lastPipeline?.status === 'running') {
+    console.log('[scheduler] Pipeline đang chạy, bỏ qua catch-up');
+    return;
+  }
 
   const hoursSince = (date) => {
     if (!date) return null; // null = chưa bao giờ chạy
@@ -371,18 +385,31 @@ async function _sendCatchUpNotification(missedJobs, catchUpResults) {
   }
 }
 
-// Lưu last run time
-async function saveLastRun(type) {
+// Lưu last run time — atomic write với running flag
+async function saveLastRun(type, status = 'done') {
   try {
-    const fs = await import('fs');
-    let lastRuns = {};
-    if (fs.existsSync(CATCH_UP_FILE)) {
-      lastRuns = JSON.parse(fs.readFileSync(CATCH_UP_FILE, 'utf8'));
-    }
-    lastRuns[type] = new Date().toISOString();
-    fs.writeFileSync(CATCH_UP_FILE, JSON.stringify(lastRuns, null, 2));
+    // Read current state (with backup recovery)
+    const lastRuns = await readJsonSafe(CATCH_UP_FILE, {});
+    lastRuns[type] = {
+      ts: new Date().toISOString(),
+      status, // 'running' | 'done' | 'failed'
+    };
+    // Atomic write with backup
+    await writeJsonAtomic(CATCH_UP_FILE, lastRuns);
   } catch (err) {
     console.error('[scheduler] saveLastRun failed:', err?.message || err);
+  }
+}
+
+// Kiểm tra xem job có đang chạy không
+function isJobRunning(type) {
+  try {
+    const fs = require('fs');
+    if (!fs.existsSync(CATCH_UP_FILE)) return false;
+    const lastRuns = JSON.parse(fs.readFileSync(CATCH_UP_FILE, 'utf8'));
+    return lastRuns[type]?.status === 'running';
+  } catch {
+    return false;
   }
 }
 

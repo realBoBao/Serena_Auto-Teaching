@@ -320,7 +320,21 @@ async function analyzeWebItemAndUpsert(itemKey, metadata, text, category = 'Back
 }
 
 async function arxivSearch(topic, maxResults = 3){
-  const query = encodeURIComponent(`all:${topic}`);
+  // Tech keywords → chỉ tìm trong CS/ML categories
+  const TECH_SIGNALS = ['infrastructure', 'kubernetes', 'docker', 'deployment', 'microservice',
+    'devops', 'terraform', 'serverless', 'distributed', 'database', 'algorithm',
+    'machine learning', 'neural', 'compiler', 'operating system', 'cloud native',
+    'software engineering', 'api', 'backend', 'frontend', 'security'];
+  const lowerTopic = topic.toLowerCase();
+  const isTech = TECH_SIGNALS.some(s => lowerTopic.includes(s));
+
+  let query;
+  if (isTech) {
+    // Chỉ tìm trong CS + ML categories
+    query = encodeURIComponent(`all:${topic} AND cat:cs.*`);
+  } else {
+    query = encodeURIComponent(`all:${topic}`);
+  }
   const url = `http://export.arxiv.org/api/query?search_query=${query}&start=0&max_results=${maxResults}&sortBy=relevance&sortOrder=descending`;
   let res;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -336,8 +350,14 @@ async function arxivSearch(topic, maxResults = 3){
   }
   if(!res.ok) throw new Error(`arXiv search ${res.status}`);
   const xml = await res.text();
-  const entries = Array.from(xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)).slice(0, maxResults);
-  return entries.map((match) => {
+  const entries = Array.from(xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)).slice(0, maxResults * 2); // lấy nhiều hơn để filter
+
+  // Post-filter: loại bỏ papers không liên quan (vật lý, khí quyển, etc.)
+  const IRRELEVANT = ['cosmic ray', 'cloud chamber', 'cern', 'particle physics', 'hadron',
+    'neutrino', 'quantum chromodynamics', 'aerosol', 'meteorolog', 'climatolog',
+    'atmospheric physics', 'geophysic', 'astrophysic'];
+
+  const results = entries.map((match) => {
     const entry = match[1];
     const idMatch = entry.match(/<id>([^<]+)<\/id>/);
     const titleMatch = entry.match(/<title>([\s\S]*?)<\/title>/);
@@ -345,16 +365,23 @@ async function arxivSearch(topic, maxResults = 3){
     const publishedMatch = entry.match(/<published>([^<]+)<\/published>/);
     const authors = Array.from(entry.matchAll(/<name>([^<]+)<\/name>/g)).map((m) => m[1].trim());
     const pdfMatch = entry.match(/<link[^>]*title="pdf"[^>]*href="([^"]+)"/);
+    const title = titleMatch?.[1]?.trim().replace(/\s+/g, ' ') || 'No title';
+    const summary = summaryMatch?.[1]?.trim().replace(/\s+/g, ' ') || '';
+
+    // Loại bỏ papers không liên quan (vật lý, khí quyển, etc.)
+    const text = `${title} ${summary}`.toLowerCase();
+    if (IRRELEVANT.some(kw => text.includes(kw))) return null;
+
     return {
       id: idMatch?.[1]?.trim() || 'unknown',
-      title: titleMatch?.[1]?.trim().replace(/\s+/g, ' ') || 'No title',
-      summary: summaryMatch?.[1]?.trim().replace(/\s+/g, ' ') || '',
+      title,
+      summary,
       published: publishedMatch?.[1]?.trim() || '',
       authors,
       pdf_url: pdfMatch?.[1] || null,
       link: idMatch?.[1]?.trim() || null,
     };
-  });
+  }).filter(Boolean).slice(0, maxResults); // filter null + limit
 }
 
 async function fetchArxivPaperAndAnalyze(paper){
