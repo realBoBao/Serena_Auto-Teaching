@@ -550,6 +550,22 @@ const pipelineTask = cron.schedule(PIPELINE_CRON, () => {
   timezone: 'America/Los_Angeles', // PDT (UTC-7) / PST (UTC-8) — tự động adjust DST
 });
 
+// ── Nightly Scraper: 2:00 AM mỗi ngày — Tự động cào dữ liệu ──
+const NIGHTLY_CRON = '0 2 * * *';
+const nightlyTask = cron.schedule(NIGHTLY_CRON, async () => {
+  console.log('[scheduler] Nightly scraper triggered at', new Date().toISOString());
+  try {
+    const { runNightlyScraper } = await import('./scripts/nightly_scraper.js');
+    const result = await runNightlyScraper();
+    console.log(`[scheduler] Nightly scraper done: ${result.stored} docs stored`);
+    await saveLastRun('nightly');
+  } catch (err) {
+    console.error('[scheduler] Nightly scraper error:', err?.message || err);
+  }
+}, {
+  timezone: 'America/Los_Angeles',
+});
+
 task.start();
 memoryTask.start();
 backupTask.start();
@@ -557,6 +573,7 @@ evoTask.start();
 graphTask.start();
 pipelineTask.start();
 suggestionTask.start();
+nightlyTask.start();
 
 async function gracefulShutdown(signal) {
   console.log(`[scheduler] Received ${signal}, stopping all cron tasks...`);
