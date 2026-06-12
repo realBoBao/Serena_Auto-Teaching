@@ -394,6 +394,17 @@ setTimeout(() => {
 if (RUN_ON_START) {
   // Delay 30s startup to let other services initialize first
   setTimeout(() => {
+    // Skip if catch-up already ran pipeline recently (within 5 minutes)
+    try {
+      const fs = require('fs');
+      const lastRun = fs.readFileSync(CATCH_UP_FILE, 'utf8');
+      const data = JSON.parse(lastRun);
+      const lastPipeline = data.pipeline ? new Date(data.pipeline) : null;
+      if (lastPipeline && (Date.now() - lastPipeline.getTime()) < 300000) {
+        console.log('[scheduler] Startup pipeline skipped — catch-up ran recently');
+        return;
+      }
+    } catch { /* ignore */ }
     try {
       runPipeline();
     } catch (err) {
