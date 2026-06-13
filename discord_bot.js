@@ -381,7 +381,7 @@ client.on(Events.MessageCreate, async (message) => {
         db.prepare(`
           INSERT INTO f1_feedback (user_id, message_id, sentiment, created_at)
           VALUES (?, ?, ?, datetime('now'))
-        `.run(message.author.id, originalMessageId, sentiment);
+        `).run(message.author.id, originalMessageId, sentiment);
         await message.reply(`✅ Feedback recorded: ${sentiment}`);
       } catch (err) {
         await message.reply('❌ Lỗi khi lưu feedback.');
