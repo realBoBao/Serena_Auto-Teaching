@@ -2135,24 +2135,17 @@ client.on(Events.MessageCreate, async (message) => {
             const safeTopic = previewTopic(topicLabel);
             const customId = rememberInterestTopic(topicLabel);
 
-            const interestBtn = new ButtonBuilder()
-              .setCustomId(customId)
-              .setLabel(`Quan tam: ${safeTopic}`)
-              .setStyle(ButtonStyle.Primary);
-
-            // 👍/👎 feedback buttons cho F1 evaluation
-            const feedbackRow = new ActionRowBuilder().addComponents(
+            // 👍 = Quan tâm + F1 positive feedback (gộp Markov chain vào feedback)
+            const row = new ActionRowBuilder().addComponents(
               new ButtonBuilder()
-                .setCustomId(`feedback:👍:${job.message.id}`)
-                .setLabel('👍')
+                .setCustomId(`feedback:👍:${customId}`)
+                .setLabel(`👍 Quan tâm: ${safeTopic}`)
                 .setStyle(ButtonStyle.Success),
               new ButtonBuilder()
-                .setCustomId(`feedback:👎:${job.message.id}`)
+                .setCustomId(`feedback:👎:${customId}`)
                 .setLabel('👎')
                 .setStyle(ButtonStyle.Danger),
             );
-
-            const row = new ActionRowBuilder().addComponents(interestBtn);
 
             // Build response with source scores
             let responseText = result.answer || 'Khong tim thay cau tra loi phu hop.';
