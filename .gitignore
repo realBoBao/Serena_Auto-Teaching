@@ -11,6 +11,7 @@ node_modules/
 .env.production
 *.pem
 *.key
+vertex-key.json
 
 # ═══════════════════════════════════════════════════════════
 # DATABASES — Local data (large, user-specific)
