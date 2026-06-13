@@ -100,7 +100,20 @@ Discord/Webhook → Orchestrator → RouterAgent → [RagAgent, CoderAgent, ...]
                               [Docker | In-Process]
 ```
 
-## 📁 Cấu trúc thư mục
+## �️ BigQuery Setup (Optional)
+
+BigQuery có thể dùng làm vector store thay cho Qdrant:
+
+```bash
+# 1. Tạo Service Account key từ GCP Console
+# 2. Save as vertex-key.json
+# 3. Run setup
+node scripts/setup_bigquery.js
+```
+
+Hoặc dùng SQLite (mặc định) — không cần setup.
+
+## �📁 Cấu trúc thư mục
 
 ```
 ├── agents/           # 19 AI agents
