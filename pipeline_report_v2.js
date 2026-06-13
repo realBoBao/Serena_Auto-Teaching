@@ -928,15 +928,29 @@ async function run(topic = null, isForce = false){
     try {
       const { sendAggregatedWebhook } = await import('./notify_discord.js');
 
-      if (allResults.length > 0) {
-        // Có source → gửi thông báo source bình thường
+      // ── Dedup: Loại bỏ sources đã có trong DB (theo URL) ──
+      const freshResults = [];
+      for (const r of allResults) {
+        const url = r.url || r.link || '';
+        if (url && await isProcessed(`url:${url.slice(0, 100)}`)) {
+          continue; // Skip sources đã có
+        }
+        freshResults.push(r);
+        // Mark as processed
+        if (url) await markProcessed({ id: `url:${url.slice(0, 100)}`, type: 'source', url, hash: '' });
+      }
+
+      console.log(`[Pipeline] ${freshResults.length}/${allResults.length} fresh sources (deduped ${allResults.length - freshResults.length})`);
+
+      if (freshResults.length > 0) {
+        // Có source mới → gửi thông báo
         await sendAggregatedWebhook({
           topic: chosenTopic,
-          results: allResults,
-          bullets: `${allResults.length} sources found across YouTube, GitHub, StackOverflow, HackerNews, arXiv, Facebook`,
+          results: freshResults,
+          bullets: `${freshResults.length} sources found across YouTube, GitHub, StackOverflow, HackerNews, arXiv, Facebook`,
         });
-        console.log(`[Webhook] ✓ Sent aggregated embed with ${allResults.length} sources`);
-      } else {
+        console.log(`[Webhook] ✓ Sent aggregated embed with ${freshResults.length} sources`);
+      } else if (allResults.length > 0) {
         // Không có source → gửi thông báo server status (để biết pipeline đã chạy)
         const errorSources = [];
         if (repos.length === 0) errorSources.push('GitHub');
