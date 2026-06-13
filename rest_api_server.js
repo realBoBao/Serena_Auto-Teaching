@@ -144,6 +144,13 @@ route('GET', '/api/health', (req, res) => {
   });
 }, { public: true });
 
+// ── Prometheus Metrics ──
+import { getPrometheusMetrics } from './lib/metrics.js';
+route('GET', '/api/metrics', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain');
+  res.end(getPrometheusMetrics());
+}, { public: true });
+
 // ── Scheduler Status (catch-up tracking) ──
 route('GET', '/api/scheduler/status', async (req, res) => {
   try {

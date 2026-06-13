@@ -2,10 +2,10 @@ import { spawn } from 'child_process';
 import cron from 'node-cron';
 import { addJob, JobType, QueueName } from './lib/task_queue.js';
 
-// Cron schedule theo UTC (PDT = UTC-7)
-// 8AM PDT = 15:00 UTC, 8PM PDT = 03:00 UTC (ngày hôm sau)
+// Cron schedule theo PDT (UTC-7)
+// 8AM=15:00UTC, 11AM=18:00UTC, 2PM=21:00UTC, 5PM=00:00UTC, 8PM=03:00UTC
 // Dùng timezone 'America/Los_Angeles' để cron tự động chuyển đổi
-const CRON_SCHEDULE = process.env.CRON_SCHEDULE || '0 8,20 * * *';
+const CRON_SCHEDULE = process.env.CRON_SCHEDULE || '0 8,11,14,17,20 * * *';
 const RUN_ON_START = process.env.RUN_ON_START !== 'false';
 const FORCE_RUN = process.env.FORCE_PIPELINE === 'true';
 const TOPIC_OVERRIDE = process.env.PIPELINE_TOPIC || '';

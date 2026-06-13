@@ -16,6 +16,7 @@
 
 import 'dotenv/config';
 import express from 'express';
+import cron from 'node-cron';
 import { getLogger } from './lib/logger.js';
 
 const logger = getLogger('WebhookBot');
@@ -301,10 +302,61 @@ app.get('/health', (req, res) => {
 // ═══════════════════════════════════════════════════════════
 //  START SERVER
 // ═══════════════════════════════════════════════════════════
+// ── Cron: Auto-push sources lúc 8AM và 8PM ──
+// Chạy scraper nhẹ + gửi summary qua Discord
+cron.schedule('0 8,20 * * *', async () => {
+  logger.info('[WebhookBot] Cron: Auto-push sources...');
+  try {
+    // Gọi nightly scraper để lấy sources mới
+    const { runNightlyScraper } = await import('./scripts/nightly_scraper.js');
+    const result = await runNightlyScraper();
+
+    if (result.stored > 0) {
+      // Gửi summary qua Discord webhook
+      const summary = [
+        `📚 **Nightly Source Push** — ${result.stored} new documents`,
+        '',
+        '**Breakdown:**',
+        ...Object.entries(result.breakdown || {})
+          .filter(([, v]) => v > 0)
+          .map(([k, v]) => `• ${k}: ${v} sources`),
+        '',
+        `⏱ Duration: ${result.duration}`,
+      ].join('\n');
+
+      await executeDiscordWebhook(buildEmbed({
+        title: '🔄 Nightly Source Push',
+        description: summary.slice(0, 4000),
+        color: 0x00ff00,
+        fields: [],
+        footer: 'AI Brain Nightly Scraper',
+      }));
+
+      logger.info(`[WebhookBot] Cron: Pushed ${result.stored} sources to Discord`);
+    } else {
+      logger.info('[WebhookBot] Cron: No new sources found');
+    }
+  } catch (err) {
+    logger.error('[WebhookBot] Cron error:', err.message);
+    // Gửi error notification
+    try {
+      await executeDiscordWebhook(buildEmbed({
+        title: '⚠️ Nightly Scraper Failed',
+        description: `Error: ${err.message.slice(0, 500)}`,
+        color: 0xff0000,
+        footer: 'AI Brain Error',
+      }));
+    } catch { /* ignore */ }
+  }
+}, {
+  timezone: 'America/Los_Angeles',
+});
+
 app.listen(PORT, () => {
   logger.info(`[WebhookBot] Listening on port ${PORT}`);
   logger.info(`[WebhookBot] Auth: ${WEBHOOK_SECRET ? 'ENABLED' : 'DISABLED (dev mode)'}`);
   logger.info(`[WebhookBot] Discord Webhook: ${DISCORD_WEBHOOK ? 'CONFIGURED' : 'NOT SET'}`);
+  logger.info(`[WebhookBot] Cron: 8AM + 8PM source push enabled`);
 });
 
 export { executeDiscordWebhook, buildEmbed };
