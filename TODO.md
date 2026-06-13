@@ -1,86 +1,98 @@
 # 📋 TODO — my-ai-brain Roadmap
 
-> **Cập nhật:** 2026-06-11 07:00
-> **Test Coverage:** 320/320 PASS (100%) | **Flashcards:** 198 cards | **Uptime:** 24/7 PM2
-> **PM2 Services:** 10/10 online | **Redis:** In-memory fallback mode | **Security:** CSP + CORS + API key rotation + IP filtering + Audit log
-> **UserProfile:** Hoàn thiện — getUserPreference, getProfileStats, streak, level/xp, cleanupOldEvents ✅
-> **!profile fix:** Thêm PROFILE vào INTENT_KEYWORDS + routing ✅
-> **Git conflict fix:** .gitignore thêm .query_dedup.json, .scheduler_last_run.json ✅
-> **API:** 30+ REST endpoints | **PWA:** Mobile companion with voice input + offline sync | **Knowledge Graph:** SQLite-backed with D3.js visualization
-> **Socratic Mode:** Hoàn thiện — SocraticAgent + hint system + escape hatch + auto-detect ✅
+> **Cập nhật:** 2026-06-13
+> **Test Coverage:** 325/325 PASS (100%) | **CI Jobs:** 4/4 (Lint → Test → Security → Build)
+> **PM2 Services:** 8 online | **Uptime:** 24/7 | **Deploy:** GitHub Actions → SSH
 
 ---
 
-## ✅ Đã hoàn thành (180+ tasks)
+## ✅ Đã hoàn thành
 
 ### Core Infrastructure
 - ✅ Discord Bot + Webhook Bot + REST API + Scheduler
 - ✅ RAG Pipeline (Vector + BM25 + HyDE + Query Expansion)
-- ✅ LLM Layer (OpenRouter → Gemini → Local → Static fallback)
-- ✅ 198 Flashcards (spaced repetition)
-- ✅ Self-Evolution (A/B testing, model selection)
-- ✅ Cross-Model Learning (học chéo giữa models)
-- ✅ CodeAnalyzer, SecurityAuditor, PerformanceProfiler, LogAnalyzer
-- ✅ DebateAgent với Planner Intervention
-- ✅ Sandbox Security (4-layer patterns)
-- ✅ Auto-Backup script + CI/CD pipeline
+- ✅ LLM Fallback Chain: OpenRouter → Gemini → Local → Static
+- ✅ 325 Unit Tests (100% pass)
+- ✅ FSRS Spaced Repetition (thay SM-2)
+- ✅ User Mental Model (SQLite-backed profile + learning style)
+- ✅ Temporal Knowledge Graph (bi-temporal, Graphiti-style)
+- ✅ Probabilistic Guardrails (TF-IDF scope detector + F1 + grounding verifier)
+- ✅ Security: CSP + CORS + API key + IP filter + Audit log + npm audit CI
+- ✅ CI/CD: 4 jobs (Lint → Test → Security → Build) + SSH deploy
 
-### Discord Commands
+### Discord Commands (22 commands)
 ```
 !ask <câu hỏi>     → RAG-powered Q&A
+!ask <câu hỏi> --deep → Deep search
+!run <code>        → Chạy code trong Sandbox
+!code <bài toán>   → Viết + chạy code tự động
 !debate <bài toán> → Multi-agent debate
+!quiz              → Flashcard quiz (FSRS)
+!answer <id> <ans> → Review flashcard
+!learn <url>       → Học từ URL/PDF
+!history <topic>   → Xem facts từ Knowledge Graph
+!whenwas <topic>   → Query KG tại thời điểm cụ thể
 !analyze <code>    → Code quality analysis
 !audit <code>      → Security audit
 !profile <code>    → Performance profiling
+!profile           → Xem hồ sơ học tập
 !logs <text>       → Log analysis
-!quiz              → Flashcard quiz
-!answer <id> <ans> → Review flashcard
-!learn <url>       → Learn from URL/PDF
-!preferences       → Set user preferences
-!help              → Show all commands
+!vision + ảnh      → Phân tích ảnh
+!voice + audio     → Transcribe giọng nói
+!animate <mô tả>   → Tạo video animation
+!plan + ảnh        → Lập kế hoạch từ ảnh
+!review            → Shadow Review (ôn code)
+!incident          → Chaos Engineering
+!memory <nội dung> → Lưu trí nhớ
+!preferences       → Tuỳ chọn model/sources/learning
+!prefer            → Đặt phong cách học
+!f1stats           → F1 Score Dashboard
+!path <topic>      → Lộ trình học từ KG
+!schedule          → Đồng bộ thời khóa biểu
+!help              → Danh sách lệnh
 ```
 
 ---
 
-## 🔴 Cần fix (Priority Order)
+## 📊 Đánh giá chất lượng toàn diện
 
-### P0 — Critical (blocker) — Fallback đã cải thiện
-- [ ] **Discord token invalid** — cần update token mới từ Developer Portal (manual)
-- [x] **LLM rate limited** — Static fallback giờ search vector DB trước khi trả lời ✅
-- [x] **GitHub search 422** — Retry với simplified query khi bị reject ✅
-
-### P1 — High (ảnh hưởng trải nghiệm) — ✅ Đã fix
-- [x] **Memory leaks** — incidentSessions, shadow review sessions auto-cleanup ✅
-- [x] **JSON.parse safety** — memory_manager.js thêm safeJsonParse ✅
-- [x] **Auto-start side effects** — EvoAgent, GraphAgent chỉ start khi run directly ✅
-- [x] **Duplicate patterns** — sandbox_patterns.js OK (không có duplicate thực sự) ✅
-- [x] **!ask --deep flag** — Deep search mode với nhiều sources hơn + web search fallback ✅
-- [x] **Scheduler tasks** — suggestionTask.start() đã thêm ✅
-
-### P2 — Medium (tối ưu) — ✅ Đã fix
-- [x] **Tight coupling** — invokeLlm chuyển sang lib/llm.js ✅
-- [x] **Hardcoded timeouts** — config/timeouts.js centralized ✅
-- [x] **Missing registry** — SecurityAuditor, SuggestionAgent thêm vào RouterAgent ✅
-- [x] **Self-evolution persistence** — AB test + evaluation log SQLite persistence ✅
+| Tiêu chí | Hiện tại | Mục tiếu | Ghi chú |
+|---|---|---|---|
+| **Test Coverage** | 325/325 (100%) | ✅ | Unit tests |
+| **CI/CD** | 4 jobs | ✅ | Lint + Test + Security + Build |
+| **Code Quality** | ESLint + Prettier | ✅ | Automated |
+| **Security** | 4-layer sandbox + npm audit | ✅ | CI + runtime |
+| **RAG Quality** | F1 + grounding verifier | ✅ | Chống hallucination |
+| **Self-Learning** | FSRS + User Profile + KG | ✅ | Temporal KG |
+| **Multi-Agent** | 8 agents + debate + pipeline | ✅ | Orchestrator |
+| **Observability** | Logging + PM2 + health check | ⚠️ | Thiếu Prometheus/Grafana |
+| **Documentation** | Code comments + HOTFIX.md | ⚠️ | Thiếu API docs |
+| **E2E Tests** | ❌ Chưa có | ⚠️ | Integration tests |
+| **Load Testing** | ❌ Chưa có | ⚠️ | Performance benchmarks |
+| **Chaos Engineering** | !incident command | ✅ | Simulated |
+| **Backup/Restore** | ✅ Auto-backup | ✅ | Weekly cron |
+| **Deploy Automation** | ✅ GitHub Actions → SSH | ✅ | Auto deploy on push |
 
 ---
 
-## 📋 Roadmap tiếp theo
+## 🔴 Cần cải thiện
 
-### Phase A: Deploy lên VPS (ưu tiên #1)
-1. Setup GCP VPS với `scripts/setup_gcp.sh`
-2. Configure GitHub Actions CI/CD
-3. Test auto-deploy khi push lên main
+### P0 — Critical (nên làm)
+- [ ] **SSH Deploy fail** — Fix SSH key authentication (GitHub Secrets ↔ server authorized_keys)
+- [ ] **E2E Integration Tests** — Thêm tests cho full pipeline (scrape → embed → query → answer)
+- [ ] **API Documentation** — Swagger/OpenAPI cho 30+ REST endpoints
 
-### Phase B: Hoàn thiện Self-Learning — ✅ Đã fix
-1. Cross-model learning persistence ✅
-2. User preference-based source selection ✅
-3. Auto-ingest từ artifacts/*.md
+### P1 — High (nên làm trong 1-2 tuần)
+- [ ] **Prometheus + Grafana** — Metrics dashboard cho PM2 services
+- [ ] **Load Testing** — Benchmark concurrent requests, memory usage
+- [ ] **Error Tracking** — Sentry hoặc tương tự cho production errors
+- [ ] **Dependency Updates** — `npm outdated` → update critical packages
 
-### Phase C: Monitoring & Alerting — ✅ Đã fix
-1. Prometheus + Grafana dashboard
-2. Discord alert khi service down ✅
-3. Auto-restart khi crash ✅ (scheduler catch-up + health check)
+### P2 — Medium (nice to have)
+- [ ] **TypeScript Migration** — Gradual migration từ JS → TS (bắt đầu từ lib/)
+- [ ] **i18n** — Đa ngữ (Việt + Anh) cho Discord messages
+- [ ] **Plugin System** — Cho phép thêm agents mới không cần sửa core
+- [ ] **WebSocket Real-time** — Thay polling bằng WS cho notifications
 
 ---
 
@@ -98,9 +110,6 @@ node scripts/backup.sh         # Backup data
 !preferences learning on       # Enable self-learning
 !quiz                          # Start flashcard quiz
 !quiz stats                    # View flashcard stats
-
-# PM2
-pm2 list                       # View services
-pm2 logs AI_Brain              # View logs
-pm2 restart AI_Brain           # Restart bot
+!f1stats                       # View F1 Score Dashboard
+!history distributed systems   # Query Knowledge Graph
 ```

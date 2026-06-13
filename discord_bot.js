@@ -427,7 +427,7 @@ client.on(Events.MessageCreate, async (message) => {
     if (message.content === '!help' || message.content === '!help ') {
       return message.reply({
         content:
-          '📋 **Danh sách lệnh AI Brain:**\n\n' +
+          '📋 **Danh sách lệnh AI Brain v6.0:**\n\n' +
           '**🔍 Hỏi đáp & Tìm kiếm:**\n' +
           '`!ask <câu hỏi>` — Hỏi AI (RAG + Web Search)\n' +
           '`!ask <câu hỏi> --deep` — Tìm kiếm sâu (nhiều nguồn hơn)\n\n' +
@@ -437,20 +437,24 @@ client.on(Events.MessageCreate, async (message) => {
           '`!debate <bài toán>` — Tranh luận đa tác nhân\n' +
           '`!debate <bài toán> --quick` — Tranh luận nhanh\n\n' +
           '**📚 Học tập & Ôn tập:**\n' +
-          '`!quiz` — Ôn tập flashcard\n' +
+          '`!quiz` — Ôn tập flashcard (FSRS spaced repetition)\n' +
           '`!quiz stats` — Xem thống kê\n' +
           '`!answer <id> <đáp án>` — Trả lời flashcard\n' +
-          '`!learn <url>` — Học từ URL/PDF\n\n' +
+          '`!learn <url>` — Học từ URL/PDF\n' +
+          '`!history <topic>` — Xem facts gần đây từ Knowledge Graph\n' +
+          '`!whenwas <topic> [YYYY-MM-DD]` — Query KG tại thời điểm cụ thể\n\n' +
           '**🔍 Phân tích & Kiểm tra:**\n' +
           '`!analyze <code>` — Phân tích chất lượng code\n' +
           '`!audit <code>` — Quét bảo mật code\n' +
           '`!profile <code>` — Phân tích performance\n' +
           '`!logs <text>` — Phân tích logs\n\n' +
-          '**⚙️ Tuỳ chọn:**\n' +
+          '**⚙️ Tuỳ chọn & Hồ sơ:**\n' +
+          '`!profile` — Xem hồ sơ học tập cá nhân\n' +
           '`!preferences show` — Xem tuỳ chọn hiện tại\n' +
           '`!preferences model openrouter|gemini|auto` — Chọn model ưu tiên\n' +
           '`!preferences sources youtube,github` — Chọn nguồn ưu tiên\n' +
-          '`!preferences learning on|off` — Bật/tắt tự học\n\n' +
+          '`!preferences learning on|off` — Bật/tắt tự học\n' +
+          '`!prefer example_first|theory_first|code_heavy` — Chọn phong cách học\n\n' +
           '**🎨 Sáng tạo:**\n' +
           '`!animate <mô tả>` — Tạo video animation\n' +
           '`!animate <mô tả> --async` — Render nền\n\n' +
@@ -461,9 +465,13 @@ client.on(Events.MessageCreate, async (message) => {
           '`!plan` + ảnh — Lập kế hoạch từ ảnh\n' +
           '`!review` — Shadow Review (ôn code)\n' +
           '`!incident` — Chaos Engineering (sự cố)\n' +
-          '`!memory <nội dung>` — Lưu trí nhớ\n\n' +
+          '`!memory <nội dung>` — Lưu trí nhớ\n' +
+          '`!f1stats` — Xem F1 Score Dashboard\n' +
+          '`!path <topic>` — Tạo lộ trình học từ Knowledge Graph\n\n' +
           '**⚙️ Hệ thống:**\n' +
-          '`!help` — Hiện danh sách lệnh này',
+          '`!schedule` — Đồng bộ thời khóa biểu\n' +
+          '`!help` — Hiện danh sách lệnh này\n\n' +
+          '**📊 Chất lượng:** `!f1stats` | **🔒 Bảo mật:** `!audit` | **🧠 Học tập:** `!quiz` `!review` `!learn`',
         allowedMentions: { parse: [], repliedUser: false },
       });
     }
