@@ -26,7 +26,6 @@ import { getEmbeddingCacheStats } from './lib/embeddings.js';
 import { getGraphStats, searchEntities, exportGraphForVisualization } from './lib/knowledge_graph.js';
 import { getEvaluationStats, getModelPerformanceReport, getAllABTestResults, detectKnowledgeGaps } from './lib/self_evolution.js';
 import { listVideos, cleanupOldVideos } from './lib/video_cdn.js';
-import { LearningPathGenerator } from './lib/learning_path.js';
 import { getSecurityHeaders, validateApiKey, isIpAllowed, checkBodySize, auditLog, validateBody, sanitizeString } from './lib/security.js';
 import { handleInteraction, registerSlashCommands } from './discord_interactions.js';
 import { handleJob } from './cloud_scheduler_triggers.js';

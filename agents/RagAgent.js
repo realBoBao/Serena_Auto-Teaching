@@ -987,9 +987,24 @@ async function synthesizeAnswer(query, context, sourceType, userId = null) {
     }
   } catch { /* headroom optional, fallback to raw context */ }
 
-  const prompt = sourceType === 'web'
-    ? `Local data is missing. Use the following Web Context to answer in natural Vietnamese with Vietnamese diacritics. If URLs are available, cite them at the end.${sourceInfo}\n\n⚠️ QUAN TRỌNG: Ưu tiên thông tin từ nguồn đáng tin cậy nhất (YouTube > GitHub > Facebook > Web). Nếu các nguồn mâu thuẫn, dùng nguồn có độ tin cậy cao hơn.${profileContext ? '\n\n' + profileContext : ''}\n\nWeb Context:\n${compressedContext}\n\nQuestion: ${query}\n\nAnswer:`
-    : `Use the system Context below to answer the question in natural Vietnamese with Vietnamese diacritics. If the context is not enough, clearly say that you could not find suitable data and suggest how to search or rephrase.${profileContext ? '\n\n' + profileContext : ''}${mem0Context}\n\nContext:\n${compressedContext}\n\nQuestion: ${query}\n\nAnswer:`;
+  // ── Prompt Optimization (Tier 1) ──
+  let prompt;
+  try {
+    const { buildOptimalPrompt } = await import('../lib/prompt_optimizer.js');
+    prompt = buildOptimalPrompt(query, compressedContext, {
+      strategy: 'auto',
+      examples: [],
+    });
+    // Append user profile and memory context
+    if (profileContext) prompt = prompt + '\n\n' + profileContext;
+    if (mem0Context) prompt = prompt + mem0Context;
+    if (sourceType === 'web' && sourceInfo) prompt = prompt + '\n\n' + sourceInfo;
+  } catch {
+    // Fallback to standard prompt if optimizer fails
+    prompt = sourceType === 'web'
+      ? `Local data is missing. Use the following Web Context to answer in natural Vietnamese with Vietnamese diacritics. If URLs are available, cite them at the end.${sourceInfo}\n\n⚠️ QUAN TRỌNG: Ưu tiên thông tin từ nguồn đáng tin cậy nhất (YouTube > GitHub > Facebook > Web). Nếu các nguồn mâu thuẫn, dùng nguồn có độ tin cậy cao hơn.${profileContext ? '\n\n' + profileContext : ''}\n\nWeb Context:\n${compressedContext}\n\nQuestion: ${query}\n\nAnswer:`
+      : `Use the system Context below to answer the question in natural Vietnamese with Vietnamese diacritics. If the context is not enough, clearly say that you could not find suitable data and suggest how to search or rephrase.${profileContext ? '\n\n' + profileContext : ''}${mem0Context}\n\nContext:\n${compressedContext}\n\nQuestion: ${query}\n\nAnswer:`;
+  }
 
   let answer;
   try {

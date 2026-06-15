@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import cron from 'node-cron';
 import { addJob, JobType, QueueName } from './lib/task_queue.js';
 import { getLogger } from './lib/logger.js';
+import { writeJsonAtomic, readJsonSafe } from './lib/atomic_write.js';
 
 const logger = getLogger('Scheduler');
 
@@ -110,6 +111,7 @@ async function runMemoryConsolidation() {
     console.log('[scheduler] Memory consolidation completed');
     await saveLastRun('memory');
   } catch (err) {
+    // ponytail: Qdrant not available → memory consolidation silently fails, upgrade: add Qdrant or switch to SQLite vector store
     console.error('[scheduler] Memory consolidation error:', err?.message || err);
   }
 }
@@ -177,8 +179,7 @@ console.log('[scheduler] Run on start:', RUN_ON_START);
 // ── Catch-up: Kiểm tra cron jobs bị lỡ khi máy sleep/reboot ────────────────
 const CATCH_UP_FILE = './.scheduler_last_run.json';
 
-// Atomic write/read utilities (loaded once)
-import { writeJsonAtomic, readJsonSafe } from './lib/atomic_write.js';
+// Atomic write/read utilities (loaded once at top of file)
 
 async function checkCatchUp() {
   const now = new Date();
@@ -198,9 +199,6 @@ async function checkCatchUp() {
   const lastPipeline = parseLastRun(lastRuns.pipeline);
   const lastMemory = parseLastRun(lastRuns.memory);
   const lastBackup = parseLastRun(lastRuns.backup);
-  const lastEvo = parseLastRun(lastRuns.evo);
-  const lastGraph = parseLastRun(lastRuns.graph);
-
   // Nếu job đang chạy → bỏ qua, không trigger lại
   if (lastPipeline?.status === 'running') {
     console.log('[scheduler] Pipeline đang chạy, bỏ qua catch-up');
@@ -220,204 +218,37 @@ async function checkCatchUp() {
   console.log(`  Memory:   last run ${formatHours(hoursSince(lastMemory))}`);
   console.log(`  Backup:   last run ${formatHours(hoursSince(lastBackup))}`);
 
-  // ── Chạy catch-up cho từng job bị lỡ, lưu kết quả thực tế ──
-  const catchUpResults = {}; // { jobName: { output: string, error?: string } }
-  const missedJobs = [];
+  // ── Chạy catch-up cho từng job bị lỡ ──
+  const missed = [];
 
-  // Pipeline catch-up (nếu chưa bao giờ chạy → coi như missed)
+  // Pipeline catch-up
   const hsPipeline = hoursSince(lastPipeline);
   if (hsPipeline === null || hsPipeline > 12) {
     console.log('[scheduler] ⚠️ Pipeline missed! Running catch-up...');
     try {
-      // Chạy pipeline và lấy output (timeout 10 phút)
       const { execSync } = await import('child_process');
-      const output = execSync(`node pipeline_report_v2.js --no-webhook`, {
-        encoding: 'utf8',
-        timeout: 600000,
-        maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-      });
-      // Lấy phần summary từ output (từ dòng "Pipeline completed" trở về trước)
-      const lines = output.split('\n');
-      const summaryStart = lines.findIndex(l => l.includes('Pipeline completed') || l.includes('Markdown report saved'));
-      const summary = summaryStart >= 0 ? lines.slice(Math.max(0, summaryStart - 20)).join('\n') : output.slice(-3000);
-      catchUpResults.Pipeline = { output: summary };
-      missedJobs.push({ name: 'Pipeline', hours: hsPipeline || 0 });
-      console.log('[scheduler] Pipeline catch-up completed, output length:', summary.length);
-    } catch (err) {
-      catchUpResults.Pipeline = { error: err.message };
-      missedJobs.push({ name: 'Pipeline', hours: hsPipeline || 0 });
-      console.error('[scheduler] Pipeline catch-up failed:', err.message);
-    }
+      execSync(`node pipeline_report_v2.js --no-webhook`, { encoding: 'utf8', timeout: 600000 });
+      missed.push('Pipeline');
+    } catch (err) { console.error('[scheduler] Pipeline catch-up failed:', err.message); }
   }
 
-  // Memory consolidation catch-up (nếu chưa bao giờ chạy → coi như missed)
+  // Memory consolidation catch-up
   const hsMemory = hoursSince(lastMemory);
   if (hsMemory === null || hsMemory > 24) {
     console.log('[scheduler] ⚠️ Memory consolidation missed! Running catch-up...');
-    try {
-      const result = await runMemoryConsolidation();
-      catchUpResults.Memory = { output: `Memory consolidation completed. Archived memories.` };
-      missedJobs.push({ name: 'Memory', hours: hsMemory });
-    } catch (err) {
-      catchUpResults.Memory = { error: err.message };
-      missedJobs.push({ name: 'Memory', hours: hsMemory });
-    }
+    try { await runMemoryConsolidation(); missed.push('Memory'); }
+    catch (err) { console.error('[scheduler] Memory catch-up failed:', err.message); }
   }
 
-  // Backup catch-up (nếu chưa bao giờ chạy → coi như missed)
+  // Backup catch-up
   const hsBackup = hoursSince(lastBackup);
   if (hsBackup === null || hsBackup > 168) {
     console.log('[scheduler] ⚠️ Backup missed! Running catch-up...');
-    try {
-      const result = await runBackup();
-      catchUpResults.Backup = { output: `Backup completed successfully.` };
-      missedJobs.push({ name: 'Backup', hours: hsBackup });
-    } catch (err) {
-      catchUpResults.Backup = { error: err.message };
-      missedJobs.push({ name: 'Backup', hours: hsBackup });
-    }
+    try { await runBackup(); missed.push('Backup'); }
+    catch (err) { console.error('[scheduler] Backup catch-up failed:', err.message); }
   }
 
-  // EvoAgent catch-up (nếu chưa bao giờ chạy → coi như missed)
-  const hsEvo = hoursSince(lastEvo);
-  if (hsEvo === null || hsEvo > 24) {
-    console.log('[scheduler] ⚠️ EvoAgent missed! Running catch-up...');
-    try {
-      await addJob(QueueName.EVOLUTION, JobType.AUTO_EVALUATE, { timestamp: Date.now() }, { priority: 3 });
-      catchUpResults.EvoAgent = { output: 'EvoAgent auto-evaluate job queued.' };
-      missedJobs.push({ name: 'EvoAgent', hours: hsEvo });
-    } catch (err) {
-      catchUpResults.EvoAgent = { error: err.message };
-      missedJobs.push({ name: 'EvoAgent', hours: hsEvo });
-    }
-  }
-
-  // GraphAgent catch-up (nếu chưa bao giờ chạy → coi như missed)
-  const hsGraph = hoursSince(lastGraph);
-  if (hsGraph === null || hsGraph > 168) {
-    console.log('[scheduler] ⚠️ GraphAgent missed! Running catch-up...');
-    try {
-      await addJob(QueueName.GRAPH, JobType.SYNC_GRAPH, { timestamp: Date.now() }, { priority: 5 });
-      catchUpResults.GraphAgent = { output: 'GraphAgent sync job queued.' };
-      missedJobs.push({ name: 'GraphAgent', hours: hsGraph });
-    } catch (err) {
-      catchUpResults.GraphAgent = { error: err.message };
-      missedJobs.push({ name: 'GraphAgent', hours: hsGraph });
-    }
-  }
-
-  // WebhookBot catch-up: kiểm tra xem service có đang chạy không
-  try {
-    const webhookHealth = await fetch('http://localhost:3007/health', { signal: AbortSignal.timeout(5000) });
-    if (!webhookHealth.ok) {
-      console.log('[scheduler] ⚠️ WebhookBot not healthy, restarting...');
-      // Restart webhook bot via PM2
-      const { execSync } = await import('child_process');
-      execSync('pm2 restart AI_WebhookBot', { encoding: 'utf8' });
-      catchUpResults.WebhookBot = { output: 'WebhookBot restarted via PM2' };
-      missedJobs.push({ name: 'WebhookBot', hours: 0 });
-    }
-  } catch (err) {
-    console.log('[scheduler] ⚠️ WebhookBot not running, starting...');
-    try {
-      const { execSync } = await import('child_process');
-      execSync('pm2 start ecosystem.config.cjs --only AI_WebhookBot', { encoding: 'utf8' });
-      catchUpResults.WebhookBot = { output: 'WebhookBot started via PM2' };
-      missedJobs.push({ name: 'WebhookBot', hours: 0 });
-    } catch (startErr) {
-      catchUpResults.WebhookBot = { error: startErr.message };
-      missedJobs.push({ name: 'WebhookBot', hours: 0 });
-    }
-  }
-
-  // ── Gửi Discord alert khi service down ──
-  if (missedJobs.length > 0) {
-    console.log(`[scheduler] ⚠️ Catch-up ran for: ${missedJobs.map(j => j.name).join(', ')}`);
-    // Chỉ gửi alert khi có lỗi thực sự
-    const failedJobs = missedJobs.filter(j => catchUpResults[j.name]?.error);
-    if (failedJobs.length > 0) {
-      try {
-        const webhookUrl = process.env.DISCORD_WEBHOOK;
-        if (webhookUrl) {
-          const alertLines = failedJobs.map(j => {
-            const detail = catchUpResults[j.name]?.error || '';
-            return `❌ **${j.name}** — ${detail.slice(0, 200)}`;
-          });
-          const payload = {
-            content: `🚨 **Service Alert** — ${failedJobs.length} service(s) FAILED\n\n${alertLines.join('\n')}\n\n⏰ ${new Date().toISOString()}`,
-          };
-          await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-        }
-      } catch (notifyErr) {
-        console.error('[scheduler] Discord alert failed:', notifyErr.message);
-      }
-    }
-    // const catchUpKey = `catchup_notified_${new Date().toISOString().slice(0, 10)}`;
-    // if (!global[catchUpKey]) {
-    //   console.log(`[scheduler] 📢 Sending catch-up notification for: ${missedJobs.map(j => j.name).join(', ')}`);
-    //   await _sendCatchUpNotification(missedJobs, catchUpResults);
-    //   global[catchUpKey] = true;
-    // } else {
-    //   console.log('[scheduler] Catch-up notification already sent today, skipping');
-    // }
-  }
-}
-
-/**
- * Gửi Discord webhook notification khi catch-up chạy
- */
-async function _sendCatchUpNotification(missedJobs, catchUpResults) {
-  // Đọc webhook URL từ .env file trực tiếp (child process không có process.env)
-  let webhookUrl = process.env.DISCORD_WEBHOOK;
-  if (!webhookUrl) {
-    try {
-      const fs = await import('fs');
-      const envContent = fs.readFileSync('.env', 'utf8');
-      const match = envContent.match(/DISCORD_WEBHOOK="([^"]+)"/);
-      webhookUrl = match ? match[1] : null;
-    } catch { /* ignore */ }
-  }
-  if (!webhookUrl) return; // Không có webhook → skip
-
-  // Build fields: mỗi job hiện thời gian lỡ + kết quả thực tế (nếu có)
-  const fields = missedJobs.map(job => {
-    const result = catchUpResults[job.name];
-    const hoursStr = job.hours === null || job.hours === undefined ? 'never' : `${Number(job.hours).toFixed(1)}h`;
-    let value = `Lỡ: ${hoursStr}`;
-    if (result?.output) {
-      // Có kết quả thực tế → hiển thị output (giới hạn 1024 ký tự cho Discord field)
-      const output = String(result.output).slice(0, 1000);
-      value += `\n\`\`\`${output}${result.output.length > 1000 ? '...' : ''}\`\`\``;
-    } else if (result?.error) {
-      value += `\n❌ Lỗi: ${result.error}`;
-    } else {
-      value += `\n✅ Đã chạy bù`;
-    }
-    return { name: `⚠️ ${job.name}`, value, inline: false };
-  });
-
-  const embed = {
-    title: '🔄 Scheduler Catch-Up',
-    description: `Máy vừa reboot/sleep. Đã chạy bù **${missedJobs.length}** job bị lỡ:`,
-    fields,
-    timestamp: new Date().toISOString(),
-    color: 0xffaa00,
-  };
-
-  try {
-    await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [embed] }),
-    });
-    console.log('[scheduler] Catch-up notification sent to Discord');
-  } catch (err) {
-    console.error('[scheduler] Failed to send catch-up notification:', err.message);
-  }
+  if (missed.length > 0) console.log(`[scheduler] Catch-up done: ${missed.join(', ')}`);
 }
 
 // Lưu last run time — atomic write với running flag
@@ -436,10 +267,13 @@ async function saveLastRun(type, status = 'done') {
   }
 }
 
-// Kiểm tra xem job có đang chạy không
+// Kiểm tra xem job có đang chạy không (sync version for use in non-async contexts)
 function isJobRunning(type) {
   try {
-    const lastRuns = readJsonSafe(CATCH_UP_FILE, {});
+    const fs = require('fs');
+    if (!fs.existsSync(CATCH_UP_FILE)) return false;
+    const raw = fs.readFileSync(CATCH_UP_FILE, 'utf8');
+    const lastRuns = JSON.parse(raw || '{}');
     return lastRuns[type]?.status === 'running';
   } catch {
     return false;
@@ -453,10 +287,10 @@ setTimeout(() => {
 
 if (RUN_ON_START) {
   // Delay 30s startup to let other services initialize first
-  setTimeout(() => {
+  setTimeout(async () => {
     // Skip if catch-up already ran pipeline recently (within 5 minutes)
     try {
-      const lastRuns = readJsonSafe(CATCH_UP_FILE, {});
+      const lastRuns = await readJsonSafe(CATCH_UP_FILE, {});
       const lastPipeline = lastRuns.pipeline?.ts ? new Date(lastRuns.pipeline.ts) : null;
       if (lastPipeline && (Date.now() - lastPipeline.getTime()) < 300000) {
         console.log('[scheduler] Startup pipeline skipped — catch-up ran recently');
@@ -473,7 +307,7 @@ if (RUN_ON_START) {
 
 // ── Only schedule cron jobs when NOT on Cloud Run ──
 // On Cloud Run, use Google Cloud Scheduler → HTTP POST → /scheduler/:job
-let task, memoryTask, backupTask, suggestionTask, evoTask, graphTask, pipelineTask, nightlyTask, webhookPushTask;
+let task, memoryTask, backupTask;
 
 if (!IS_CLOUD_RUN) {
   logger.info('[Scheduler] Registering node-cron jobs (local/server mode)');
@@ -489,160 +323,28 @@ if (!IS_CLOUD_RUN) {
   memoryTask = cron.schedule(MEMORY_CRON, () => {
     logger.info('[scheduler] Memory consolidation triggered');
     runMemoryConsolidation();
-  });
+  }, { timezone: 'America/Los_Angeles' });
 
   // Disaster Recovery: 3:00 AM Chủ Nhật hàng tuần
   backupTask = cron.schedule(BACKUP_CRON, () => {
     logger.info('[scheduler] Backup triggered');
     runBackup();
-  });
-
-  // ── Proactive Suggestion: 8:00 AM mỗi ngày ──
-  const SUGGESTION_CRON = '0 8 * * *';
-  suggestionTask = cron.schedule(SUGGESTION_CRON, async () => {
-  console.log('[scheduler] Proactive suggestion triggered at', new Date().toISOString());
-  try {
-    const { runContextMonitor } = await import('./agents/SuggestionAgent.js');
-    const result = await runContextMonitor();
-    if (result && result.message) {
-      console.log('[scheduler] Proactive suggestions:', result.suggestions.length);
-      // Store suggestions for Discord bot to pick up
-      const { upsertDaily } = await import('./lib/vector_collections.js');
-      const { embedText } = await import('./lib/embeddings.js');
-      const embedding = await embedText(result.message);
-      await upsertDaily(`suggestion:${Date.now()}`, {
-        url: 'scheduler://proactive-suggestion',
-        type: 'suggestion',
-      }, [result.message], [embedding]);
-    }
-  } catch (err) {
-    console.error('[scheduler] Suggestion error:', err?.message || err);
-  }
-});
-
-// ── EvoAgent: 4:00 AM mỗi ngày — Phân tích logs & tối ưu hệ thống ──
-  const EVO_CRON = '0 4 * * *';
-  evoTask = cron.schedule(EVO_CRON, async () => {
-    logger.info('[scheduler] EvoAgent analysis triggered');
-    try {
-      await addJob(QueueName.EVOLUTION, JobType.AUTO_EVALUATE, { timestamp: Date.now() }, { priority: 3 });
-      const today = new Date();
-      if (today.getDate() === 1) {
-        await addJob(QueueName.EVOLUTION, JobType.KNOWLEDGE_GAP_DETECTION, { timestamp: Date.now() }, { priority: 3 });
-      }
-      await saveLastRun('evo');
-    } catch (err) {
-      logger.errorObj('[scheduler] EvoAgent error', err);
-    }
-  });
-
-  // ── GraphAgent: 5:00 AM Chủ Nhật — Đồng bộ Knowledge Graph ──
-  const GRAPH_CRON = '0 5 * * 0';
-  graphTask = cron.schedule(GRAPH_CRON, async () => {
-    logger.info('[scheduler] GraphAgent sync triggered');
-    try {
-      await addJob(QueueName.GRAPH, JobType.SYNC_GRAPH, { timestamp: Date.now() }, { priority: 5 });
-      const today = new Date();
-      if (today.getDate() === 1) {
-        await addJob(QueueName.GRAPH, JobType.REPAIR_GRAPH_CONNECTIONS, { timestamp: Date.now() }, { priority: 4 });
-      }
-      await saveLastRun('graph');
-    } catch (err) {
-      logger.errorObj('[scheduler] GraphAgent error', err);
-    }
-  });
-
-  // ── Data Pipeline: 14:00 & 20:00 mỗi ngày ──
-  const PIPELINE_CRON = '0 14,20 * * *';
-  pipelineTask = cron.schedule(PIPELINE_CRON, () => {
-    logger.info('[scheduler] Pipeline triggered');
-    const child = spawn('node', ['pipeline_report_v2.js'], { stdio: 'inherit', detached: true });
-    child.unref();
-    logger.info(`[scheduler] Pipeline spawned PID ${child.pid}`);
   }, { timezone: 'America/Los_Angeles' });
 
-  // ── Nightly Scraper: 2:00 AM mỗi ngày ──
-  const NIGHTLY_CRON = '0 2 * * *';
-  nightlyTask = cron.schedule(NIGHTLY_CRON, async () => {
-    logger.info('[scheduler] Nightly scraper triggered');
-    try {
-      const { runNightlyScraper } = await import('./scripts/nightly_scraper.js');
-      const result = await runNightlyScraper();
-      logger.info(`[scheduler] Nightly scraper done: ${result.stored} docs stored`);
-      await saveLastRun('nightly');
-    } catch (err) {
-      logger.errorObj('[scheduler] Nightly scraper error', err);
-    }
-  }, { timezone: 'America/Los_Angeles' });
-
-  // ── Webhook Source Push: 8:00 AM & 8:00 PM ──
-  const WEBHOOK_PUSH_CRON = '0 8,20 * * *';
-  webhookPushTask = cron.schedule(WEBHOOK_PUSH_CRON, async () => {
-    logger.info('[scheduler] Webhook source push triggered');
-    try {
-      const { runNightlyScraper } = await import('./scripts/nightly_scraper.js');
-      const result = await runNightlyScraper();
-      const webhookUrl = `http://localhost:${process.env.WEBHOOK_BOT_PORT || 3007}/webhook/pipeline`;
-      await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: result.stored > 0 ? 'success' : 'partial',
-          topic: 'Nightly Source Push',
-          results: {
-            arxiv: result.breakdown?.arxiv || 0,
-            stackoverflow: result.breakdown?.stackoverflow || 0,
-            hackernews: result.breakdown?.hackernews || 0,
-            github: result.breakdown?.github || 0,
-            reddit: result.breakdown?.reddit || 0,
-            youtube: result.breakdown?.youtube || 0,
-            total: result.stored,
-          },
-          duration: result.duration,
-        }),
-      });
-      if (result.stored > 0) {
-        const alertUrl = `http://localhost:${process.env.WEBHOOK_BOT_PORT || 3007}/webhook/alert`;
-        await fetch(alertUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            severity: 'info',
-            title: '📚 New Sources Ingested',
-            message: `Nightly scraper stored **${result.stored}** new documents.`,
-            source: 'nightly_scraper',
-          }),
-        });
-      }
-      logger.info(`[scheduler] Webhook push done: ${result.stored} sources sent`);
-    } catch (err) {
-      logger.errorObj('[scheduler] Webhook push error', err);
-    }
-  }, { timezone: 'America/Los_Angeles' });
 
   // ── Start all cron jobs ──
   task.start();
   memoryTask.start();
   backupTask.start();
-  suggestionTask.start();
-  evoTask.start();
-  graphTask.start();
-  pipelineTask.start();
-  nightlyTask.start();
-  webhookPushTask.start();
 
   logger.info('[Scheduler] All node-cron jobs started');
 } // end if (!IS_CLOUD_RUN)
 
 async function gracefulShutdown(signal) {
   console.log(`[scheduler] Received ${signal}, stopping all cron tasks...`);
-  task.stop();
-  memoryTask.stop();
-  backupTask.stop();
-  evoTask.stop();
-  graphTask.stop();
-  pipelineTask.stop();
-  suggestionTask.stop();
+  task?.stop();
+  memoryTask?.stop();
+  backupTask?.stop();
 
   process.exit(0);
 }

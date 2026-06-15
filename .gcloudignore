@@ -28,6 +28,20 @@ coverage/
 
 # Ignore local data
 data/
+
+# Ignore experimental
+experimental/
+
+# Ignore backup files
+*.bak
+backups/
+
+# Ignore artifacts
+artifacts/
+
+# Ignore reports
+report-*.json
+report-*.md
 *.db
 *.sqlite
 .env
