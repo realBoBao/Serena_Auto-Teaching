@@ -33,10 +33,11 @@ jobs:
             echo "=== Starting deployment at $(date) ==="
             cd ~/ai-brain || { echo "❌ Project dir not found"; exit 1; }
             echo "📁 Working dir: $(pwd)"
-            echo "📥 Pulling latest code..."
-            # Stash local changes (package-lock.json, runtime data) before pull
-            git stash --include-untracked 2>/dev/null || true
-            git pull https://x-access-token:${GH_PAT}@github.com/realBoBao/Serena_Project00_Auto-Teaching.git main
+            echo "📥 Syncing latest code (hard reset)..."
+            # Hard reset to avoid divergent branch conflicts
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd
             echo "📦 Installing dependencies..."
             # Remove old lock file and node_modules to avoid version conflicts
             rm -f package-lock.json

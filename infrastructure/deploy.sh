@@ -14,8 +14,10 @@ echo "════════════════════════�
 
 # ── Step 1: Update code ──
 echo ""
-echo "[1/6] Pulling latest code..."
-git pull origin main 2>/dev/null || echo "  (skipping git pull — not a git repo)"
+echo "[1/6] Syncing latest code (hard reset)..."
+git fetch origin main 2>/dev/null || true
+git reset --hard origin/main 2>/dev/null || true
+git clean -fd 2>/dev/null || true
 
 # ── Step 2: Check .env ──
 echo ""
