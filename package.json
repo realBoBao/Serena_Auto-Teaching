@@ -29,6 +29,7 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@discordjs/voice": "^0.19.2",
     "@google-cloud/bigquery": "^8.3.1",
     "@google/genai": "^2.8.0",
     "@langchain/core": "^1.1.48",
@@ -43,6 +44,7 @@
     "express": "^4.19.2",
     "jsdom": "^29.1.1",
     "node-cron": "^3.0.3",
+    "opusscript": "^0.0.8",
     "pdf-parse": "^1.1.1",
     "puppeteer-core": "^25.1.0",
     "search-engine-scraper": "^1.0.0",
