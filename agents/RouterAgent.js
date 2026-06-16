@@ -11,6 +11,7 @@
  */
 
 import { getLogger } from '../lib/logger.js';
+import { classifyIntentLocal, classifyIntentLlm } from '../lib/edge_router.js';
 
 const logger = getLogger('RouterAgent');
 
@@ -310,6 +311,22 @@ class RouterAgent {
       default:
         throw new Error(`Unknown agent dispatch: ${agentKey}`);
     }
+  }
+
+
+  // ── Edge Routing (Tier 4): Intent classification bằng local model/keyword ──
+
+  /**
+   * Phân loại intent bằng edge router (local LLM hoặc keyword matching).
+   * Không gọi Gemini API → tiết kiệm chi phí và giảm độ trễ.
+   * @param {string} text — User input
+   * @returns {Promise<string>} — Intent type
+   */
+  async classifyIntent(text) {
+    // Thử local LLM trước (nếu có)
+    const intent = await classifyIntentLlm(text);
+    logger.debug(`[EdgeRouter] Intent: ${intent} for: ${text.slice(0, 50)}...`);
+    return intent;
   }
 
   // ── Stats API (cho Admin Dashboard) ──

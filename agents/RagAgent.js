@@ -975,17 +975,18 @@ async function synthesizeAnswer(query, context, sourceType, userId = null) {
     } catch { /* mem0 optional */ }
   }
 
-  // ── Headroom: Compress context to save tokens ──
+  // ── Prompt Compression (Tier 2): TF-IDF based context compression ──
   let compressedContext = context;
   try {
-    const { compress } = await import('headroom');
-    if (compress && context.length > 2000) {
-      compressedContext = await compress(context, { ratio: 0.5 });
+    const { compressPrompt, extractKeywords } = await import('../lib/prompt_compressor.js');
+    if (context.length > 1000) {
+      compressedContext = compressPrompt(context, 0.4); // Giữ 60% nội dung quan trọng
       if (process.env.DEBUG) {
-        console.log(`[RagAgent] Context compressed: ${context.length} → ${compressedContext.length} chars`);
+        const keywords = extractKeywords(query);
+        console.log(`[RagAgent] Context: ${context.length} → ${compressedContext.length} chars | Keywords: ${keywords.slice(0, 5).join(', ')}`);
       }
     }
-  } catch { /* headroom optional, fallback to raw context */ }
+  } catch { /* compressor optional, fallback to raw context */ }
 
   // ── Prompt Optimization (Tier 1) ──
   let prompt;
