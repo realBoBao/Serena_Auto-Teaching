@@ -699,7 +699,7 @@ route('POST', '/scheduler/:job', async (req, res, params) => {
 }, { public: true });
 
 // ── Shadow Launching Stats (Tier 2) ──
-route('GET', '/api/shadow/stats', (req, res) => {
+route('GET', '/api/shadow/stats', async (req, res) => {
   try {
     const { routerAgent } = await import('./agents/RouterAgent.js');
     json(res, {
@@ -869,7 +869,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   const keyStatus = !API_KEY ? 'missing' : (API_KEY === 'change-me-in-production' ? 'default' : 'custom');
   logInfo('REST API', 'server listening', { port: PORT, api_key_status: keyStatus });
 

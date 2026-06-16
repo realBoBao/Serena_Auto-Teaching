@@ -26,6 +26,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
+import { buildXmlPrompt } from '../lib/prompt_xml.js';
 
 const logger = getLogger('ManimAgent');
 
@@ -37,34 +38,19 @@ const MANIM_QUALITY = '-qm';           // medium quality (720p)
 const TARGET_MB = 24;                 // Giới hạn Discord 25MB
 
 // ── System Prompt cho LLM sinh code Manim ──
-const MANIM_SYSTEM_PROMPT = `You are an expert Manim (Mathematical Animation) developer. Write clean, working Python code using the Manim library.
+const MANIM_SYSTEM_PROMPT = buildXmlPrompt({
+  system: 'You are an expert Manim (Mathematical Animation) developer. Write clean, working Python code using the Manim library.',
+  instructions: 'Write a Manim animation based on the user description.',
+  constraints: `Always create a class that inherits from Scene
+Use self.play() for animations
+Use MathTex for formulas, Text for labels
+Keep animations concise (5-15 seconds)
+Scene class name must be descriptive (e.g., QuickSortExplanation)
+Include all imports (from manim import *)
+Use Text() with font_size=24-32 for Vietnamese labels`,
+  output: '```python\n[Complete Manim Python code]\n```',
+});
 
-RULES:
-1. Always create a class that inherits from Scene
-2. Use self.play() for animations
-3. Use MathTex for formulas, Text for labels
-4. Keep animations concise (5-15 seconds)
-5. Return ONLY the Python code in a code block, no explanations
-6. Scene class name must be descriptive (e.g., QuickSortExplanation)
-7. Include all imports (from manim import *)
-8. Use Text() with font_size=24-32 for Vietnamese labels
-9. Avoid complex 3D scenes — stick to 2D
-10. Use self.wait(0.5-1) between scenes for smooth transitions
-
-Example:
-\`\`\`python
-from manim import *
-
-class BinaryTreeDemo(Scene):
-    def construct(self):
-        title = Text("Cây Nhị Phân", font_size=32)
-        self.play(Write(title))
-        self.wait(1)
-        # Draw nodes
-        root = Circle(radius=0.4, color=BLUE).shift(UP * 1.5)
-        self.play(Create(root))
-        self.wait(1)
-\`\`\``;
 
 // ── System Prompt cho LLM sửa lỗi Manim ──
 const MANIM_DEBUG_PROMPT = `You are an expert Manim debugger. You are given a Manim Python script that failed to render, along with the error output.

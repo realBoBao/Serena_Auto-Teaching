@@ -12,6 +12,7 @@
 
 import { ask } from '../lib/llm.js';
 import { getLogger } from '../lib/logger.js';
+import { buildXmlPrompt, wrapUserMessage } from '../lib/prompt_xml.js';
 
 // Dynamic requires để tránh circular dependency + test mock issues
 let _sessionStore = null;
@@ -127,21 +128,25 @@ export class SocraticAgent {
       ? `\nUser vừa trả lời: "${previousAttempt.slice(0, 200)}"\nDựa trên câu trả lời đó, hỏi tiếp để dẫn đến câu trả lời đúng.`
       : '';
 
-    const prompt = `Bạn là một người thầy dạy theo phương pháp Socratic.
-User hỏi về: "${userQuestion}"
+    const prevCtx = previousAttempt
+      ? `\nUser vừa trả lời: "${previousAttempt.slice(0, 200)}"\nDựa trên câu trả lời đó, hỏi tiếp để dẫn đến câu trả lời đúng.`
+      : '';
+
+    const prompt = buildXmlPrompt({
+      system: 'Bạn là một người thầy dạy theo phương pháp Socratic. Bạn KHÔNG BAO GIỜ trả lời thẳng — bạn chỉ hỏi để dẫn dắt.',
+      context: `User hỏi về: "${userQuestion}"
 Topic cụ thể: ${topic}
 Vòng hỏi: ${round}/${MAX_ROUNDS}
-${roundContext}${prevContext}
-
-Tạo MỘT câu hỏi duy nhất (không trả lời thẳng) để dẫn dắt user tự tìm ra câu trả lời.
-Yêu cầu:
-- Câu hỏi phải dựa trên kiến thức user đã có (không hỏi thứ hoàn toàn mới)
-- Ngắn, rõ ràng, 1 câu duy nhất
-- Kết thúc bằng dấu "?"
-- Không giải thích, không hint trực tiếp
-- Tiếng Việt tự nhiên
-
-Chỉ xuất câu hỏi, không có thêm gì khác.`;
+${roundContext}${prevCtx}`,
+      instructions: 'Tạo MỘT câu hỏi duy nhất (không trả lời thẳng) để dẫn dắt user tự tìm ra câu trả lời.',
+      constraints: `Câu hỏi phải dựa trên kiến thức user đã có (không hỏi thứ hoàn toàn mới)
+Ngắn, rõ ràng, 1 câu duy nhất
+Kết thúc bằng dấu "?"
+Không giải thích, không hint trực tiếp
+Tiếng Việt tự nhiên
+Chỉ xuất câu hỏi, không có thêm gì khác`,
+      output: '[Chỉ câu hỏi, không có prefix hay suffix]',
+    });
 
     try {
       const question = await ask(prompt, { maxTokens: 120 });
@@ -162,21 +167,20 @@ Chỉ xuất câu hỏi, không có thêm gì khác.`;
       return { quality: 'confused', nextHint: null };
     }
 
-    const prompt = `Bạn là người thầy đánh giá câu trả lời học sinh.
-
-Topic: ${topic}
+    const prompt = buildXmlPrompt({
+      system: 'Bạn là người thầy đánh giá câu trả lời học sinh theo phương pháp Socratic.',
+      context: `Topic: ${topic}
 Câu hỏi: ${question}
-Câu trả lời của học sinh: "${userAnswer.slice(0, 300)}"
-
-Đánh giá:
-- "correct": Học sinh trả lời đúng và đầy đủ
-- "partial": Học sinh hiểu một phần, cần dẫn dắt thêm
-- "wrong": Học sinh trả lời sai hoặc không liên quan
-- "confused": Học sinh bối rối, không biết trả lời
-
-Nếu partial hoặc wrong, đưa ra 1 gợi ý ngắn (nextHint) để dẫn dắt.
-
-Trả về JSON: {"quality": "correct|partial|wrong|confused", "nextHint": "gợi ý ngắn hoặc null"}`;
+Câu trả lời của học sinh: "${userAnswer.slice(0, 300)}"`,
+      instructions: 'Đánh giá chất lượng câu trả lời và nếu cần, đưa ra gợi ý ngắn để dẫn dắt thêm.',
+      constraints: `quality phải là một trong: "correct" | "partial" | "wrong" | "confused"
+- correct: trả lời đúng và đầy đủ
+- partial: hiểu một phần, cần dẫn dắt thêm
+- wrong: trả lời sai hoặc không liên quan
+- confused: bối rối, không biết trả lời
+nextHint: gợi ý ngắn (1 câu) nếu partial/wrong, null nếu correct/confused`,
+      output: '{"quality": "correct|partial|wrong|confused", "nextHint": "gợi ý ngắn hoặc null"}',
+    });
 
     try {
       const raw = await ask(prompt, { maxTokens: 150 });
@@ -207,16 +211,17 @@ Trả về JSON: {"quality": "correct|partial|wrong|confused", "nextHint": "gợ
       .map((t, i) => `${i % 2 === 0 ? 'Bot hỏi' : 'User trả lời'}: ${t}`)
       .join('\n');
 
-    const prompt = `User vừa trải qua quá trình tìm hiểu Socratic về "${topic}".
+    const prompt = buildXmlPrompt({
+      system: 'Bạn là người thầy sau buổi học Socratic. Tone: ấm áp nhưng chính xác.',
+      context: `User vừa trải qua quá trình tìm hiểu Socratic về "${topic}".
 Lịch sử hội thoại:
-${history}
-
-Bây giờ hãy:
-1. Khen ngắn gọn nếu user đã tự tìm ra được (1 câu)
+${history}`,
+      instructions: `1. Khen ngắn gọn nếu user đã tự tìm ra được (1 câu)
 2. Giải thích đầy đủ và chính xác về topic
-3. Nêu điểm user đã hiểu đúng và điểm cần nhớ thêm
-
-Tone: như người thầy sau buổi học, ấm áp nhưng chính xác.`;
+3. Nêu điểm user đã hiểu đúng và điểm cần nhớ thêm`,
+      constraints: 'Tiếng Việt tự nhiên. Không dùng markdown heading chỉ text thuần.',
+      output: '[Giải thích đầy đủ về topic]',
+    });
 
     try {
       return await ask(prompt, { maxTokens: 500 });

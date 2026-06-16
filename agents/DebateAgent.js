@@ -27,6 +27,7 @@ import { solveWithDebugLoop } from './CoderAgent.js';
 import { withTimeout, TimeoutError } from '../lib/with_timeout.js';
 import { sandboxGateway } from '../sandbox_gateway.js';
 import { getLogger } from '../lib/logger.js';
+import { buildXmlPrompt, wrapContext } from '../lib/prompt_xml.js';
 
 const logger = getLogger('DebateAgent');
 
@@ -161,39 +162,38 @@ async function ragAgentReview(problem, solutionA, solutionB, metricsA, metricsB,
       ).join('\n\n')}`
     : '';
 
-  const prompt = `Bạn là chuyên gia review code và kiến trúc hệ thống. Phân tích và so sánh 2 giải pháp cho bài toán sau.
-
-Bài toán: ${problem}
+  const prompt = buildXmlPrompt({
+    system: 'Bạn là chuyên gia review code và kiến trúc hệ thống. Bạn phân tích và so sánh 2 giải pháp dựa trên metrics thực tế từ Sandbox.',
+    context: `Bài toán: ${problem}
 
 ━━━ GIẢI PHÁP A (Tập trung đúng đắn, dễ đọc) ━━━
 ${solutionA.slice(0, 1500)}
 
-**Sandbox Metrics A**:
-- ✅ Chạy thành công: ${metricsA.success ? 'Có' : 'Không'}
-- ⏱️ Latency: ${metricsA.latencyMs}ms
-- 💾 Memory delta: ${metricsA.memoryKb}KB
-- 📤 Output: ${metricsA.output?.slice(0, 200) || '(không có)'}
-${metricsA.error ? `- ❌ Error: ${metricsA.error.slice(0, 200)}` : ''}
+Sandbox Metrics A:
+- Chạy thành công: ${metricsA.success ? 'Có' : 'Không'}
+- Latency: ${metricsA.latencyMs}ms
+- Memory delta: ${metricsA.memoryKb}KB
+- Output: ${metricsA.output?.slice(0, 200) || '(không có)'}
+${metricsA.error ? `Error: ${metricsA.error.slice(0, 200)}` : ''}
 
 ━━━ GIẢI PHÁP B (Tập trung hiệu suất, tối ưu) ━━━
 ${solutionB.slice(0, 1500)}
 
-**Sandbox Metrics B**:
-- ✅ Chạy thành công: ${metricsB.success ? 'Có' : 'Không'}
-- ⏱️ Latency: ${metricsB.latencyMs}ms
-- 💾 Memory delta: ${metricsB.memoryKb}KB
-- 📤 Output: ${metricsB.output?.slice(0, 200) || '(không có)'}
-${metricsB.error ? `- ❌ Error: ${metricsB.error.slice(0, 200)}` : ''}
-
-━━━ YÊU CẦU PHÂN TÍCH ━━━
-1. So sánh ưu/nhược điểm của 2 giải pháp
+Sandbox Metrics B:
+- Chạy thành công: ${metricsB.success ? 'Có' : 'Không'}
+- Latency: ${metricsB.latencyMs}ms
+- Memory delta: ${metricsB.memoryKb}KB
+- Output: ${metricsB.output?.slice(0, 200) || '(không có)'}
+${metricsB.error ? `Error: ${metricsB.error.slice(0, 200)}` : ''}${context}`,
+    instructions: `1. So sánh ưu/nhược điểm của 2 giải pháp
 2. Giải pháp nào đúng hơn? (dựa trên sandbox output)
 3. Giải pháp nào nhanh hơn? (dựa trên latency thực tế)
 4. Giải pháp nào tiết kiệm memory hơn?
 5. Edge cases nào cần lưu ý?
-6. Gợi ý cải tiến cho cả 2
-
-Trả lời bằng tiếng Việt, chi tiết và có căn cứ.${context}`;
+6. Gợi ý cải tiến cho cả 2`,
+    constraints: 'Trả lời bằng tiếng Việt, chi tiết và có căn cứ. Dựa trên metrics thực tế, không phải suy đoán.',
+    output: '[Phân tích chi tiết so sánh 2 giải pháp]',
+  });
 
   return invokeLlm([new HumanMessage(prompt)], 'RagAgent');
 }
@@ -223,43 +223,42 @@ Rag Review: ${(r.rag || '').slice(0, 400)}`;
   const successA = rounds.filter(r => r.metricsA?.success).length;
   const successB = rounds.filter(r => r.metricsB?.success).length;
 
-  const prompt = `Bạn là CTO (Chief Technology Officer) — Tòa Án Trọng Tài cuối cùng.
+  const prompt = buildXmlPrompt({
+    system: 'Bạn là CTO (Chief Technology Officer) — Tòa Án Trọng Tài cuối cùng. Bạn đưa ra phán quyết dựa trên metrics thực tế từ Sandbox.',
+    context: `Bài toán: ${problem}
 
-Bài toán: ${problem}
-
-━━━ LỊCH SỬ TRANH LUẬN ━━━
+Lịch sử tranh luận:
 ${debateHistory}
 
-━━━ TỔNG HỢP METRICS THỰC TẾ TỪ SANDBOX ━━━
+Tổng hợp metrics thực tế từ Sandbox:
 | Metric | Coder A (Đúng đắn) | Coder B (Hiệu suất) |
 |---|---|---|
 | Tỉ lệ chạy đúng | ${successA}/${rounds.length} vòng | ${successB}/${rounds.length} vòng |
 | Latency trung bình | ${Math.round(avgLatencyA * 100) / 100}ms | ${Math.round(avgLatencyB * 100) / 100}ms |
-| Memory trung bình | ${Math.round(avgMemoryA)}KB | ${Math.round(avgMemoryB)}KB |
+| Memory trung bình | ${Math.round(avgMemoryA)}KB | ${Math.round(avgMemoryB)}KB |`,
+    instructions: `Đưa ra PHÁN QUYẾT CUỐI CÙNG bao gồm:
 
-━━━ NHIỆM VỤ CỦA TOÀ ÁN ━━━
-Hãy đưa ra PHÁN QUYẾT CUỐI CÙNG bao gồm:
-
-1. **BẢNG CHẤM ĐIỂM** (thang 1-10):
+1. BẢNG CHẤM ĐIỂM (thang 1-10):
    - Correctness (30%): Code chạy đúng, output chính xác
    - Performance (25%): Latency thấp, throughput cao
    - Memory (15%): Tiêu thụ RAM thấp
    - Readability (15%): Code sạch, dễ maintain
    - Scalability (15%): Khả năng mở rộng
 
-2. **NGƯỜI THẮNG**: Coder A hay Coder B? (Hoặc kết hợp cả 2?)
+2. NGƯỜI THẮNG: Coder A hay Coder B? (Hoặc kết hợp cả 2?)
 
-3. **GIẢI PHÁP TỐI ƯU CUỐI CÙNG**:
+3. GIẢI PHÁP TỐI ƯU CUỐI CÙNG:
    - Kết hợp best ideas từ cả 2 bên
    - Code hoàn chỉnh đã tối ưu
    - Giải thích trade-offs đã chấp nhận
 
-4. **KHUYẾN NGHỊ TRIỂN KHAI**:
+4. KHUYẾN NGHỊ TRIỂN KHAI:
    - Ưu tiên implement gì trước
    - Cần test gì thêm
-   - Monitoring cần thiết
-
-Trả lời bằng tiếng Việt, chi tiết và có căn cứ rõ ràng.`;
+   - Monitoring cần thiết`,
+    constraints: 'Trả lời bằng tiếng Việt, chi tiết và có căn cứ rõ ràng. Dựa trên metrics thực tế, không phải suy đoán.',
+    output: '[Phán quyết chi tiết với bảng điểm, người thắng, giải pháp tối ưu, và khuyến nghị triển khai]',
+  });
 
   return invokeLlm([new HumanMessage(prompt)], 'JudgeAgent');
 }
