@@ -1,4 +1,4 @@
-import 'dotenv/config';
+﻿import 'dotenv/config';
 import { HumanMessage } from '@langchain/core/messages';
 import fs from 'fs';
 import path from 'path';
@@ -1118,7 +1118,7 @@ export async function answerQuestion(query, options = {}) {
   }
 
   // ── Tier 2: Speculative Execution — kiểm tra prefetch cache trước ──
-  if (!options.skipCache && !options.isDeep) {
+  if (!options.skipCache && !options.isDeep && !options.bypassCache) {
     try {
       const { getPrefetched } = await import('../lib/speculative_worker.js');
       const prefetched = await getPrefetched(cleanQuery);
@@ -1136,11 +1136,11 @@ export async function answerQuestion(query, options = {}) {
   }
 
   // ── Semantic Cache check (skip for deep search or cache bypass) ──────────
-  if (!options.skipCache && !options.isDeep) {
+  if (!options.skipCache && !options.isDeep && !options.bypassCache) {
     try {
       const cache = await getSemanticCache();
       const queryEmbedding = await embedTextCached(cleanQuery);
-      const cached = await cache.get(queryEmbedding);
+      const cached = await cache.get(queryEmbedding, cleanQuery, { bypassCache: options.bypassCache });
       if (cached) {
         logger.info(`[SemanticCache] HIT for: "${cleanQuery.slice(0, 50)}..." (sim: ${cached.similarity.toFixed(2)})`);
         return {
