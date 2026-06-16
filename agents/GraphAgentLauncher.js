@@ -9,8 +9,6 @@ const logger = getLogger('GraphAgentLauncher');
 
 export async function start() {
   logger.info('[GraphAgentLauncher] Starting GraphAgent service');
-  // In PM2 mode, this would be started via ecosystem.config.cjs
-  // For now, just verify the agent can be loaded
   try {
     const agent = await import('./GraphAgent.js');
     logger.info('[GraphAgentLauncher] GraphAgent loaded successfully');
