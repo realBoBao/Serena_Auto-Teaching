@@ -463,6 +463,38 @@ client.on(Events.MessageCreate, async (message) => {
       await moodState.recordState(message.author.id, moodResult);
     } catch { /* mood analysis non-critical */ }
 
+    // ── 0a. Voice Channel commands ──
+    if (content === '!voice join' || content === '!join') {
+      try {
+        const voiceChannel = message.member?.voice?.channel;
+        if (!voiceChannel) {
+          await message.reply('❌ Bạn cần vào voice channel trước!');
+          return;
+        }
+        const { joinChannel } = await import('./agents/VoiceChannel.js');
+        const result = await joinChannel(voiceChannel);
+        if (result.success) {
+          await message.reply(`🎙️ Đã tham gia voice channel **${voiceChannel.name}**! Tôi sẽ nghe và trả lời bạn.`);
+        } else {
+          await message.reply(`❌ Lỗi: ${result.error}`);
+        }
+      } catch (err) {
+        await message.reply('❌ Lỗi: ' + err.message);
+      }
+      return;
+    }
+
+    if (content === '!voice leave' || content === '!leave') {
+      try {
+        const { leaveChannel } = await import('./agents/VoiceChannel.js');
+        leaveChannel(message.guild.id);
+        await message.reply('👋 Đã rời voice channel.');
+      } catch (err) {
+        await message.reply('❌ Lỗi: ' + err.message);
+      }
+      return;
+    }
+
     // ── 0a. Voice Study Mode commands ──
     if (content === '!voice study' || content === '!voice bắt đầu học') {
       try {
@@ -589,7 +621,9 @@ client.on(Events.MessageCreate, async (message) => {
           '`!path <topic>` — Tạo lộ trình học từ Knowledge Graph\n\n' +
           '**🎙️ Voice & VTuber:**\n' +
           '`!voice` + audio — Transcribe giọng nói (whisper.cpp)\n' +
-          '`!voice study` — Bật chế độ học (bot im lặng, chỉ nghe "Serena")\n' +
+          '`!voice join` — Tham gia voice channel (nghe & trả lời bằng giọng nói)\n' +
+          '`!voice leave` — Rời voice channel\n' +
+          '`!voice study` — Chế độ học (im lặng, chỉ nghe wake word)\n' +
           '`!voice stop` — Tắt chế độ học\n' +
           'Truy cập `/pngtuber` trên tablet/phone để xem avatar\n\n' +
           '**⚙️ Hệ thống:**\n' +
