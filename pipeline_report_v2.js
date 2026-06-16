@@ -592,14 +592,25 @@ async function run(topic = null, isForce = false){
   //   }
   // }
 
+  // ── Tier 3: Circuit Breaker wrapper cho external API calls ──
+  const { getBreaker } = await import('./lib/circuit_breaker.js');
+  const withBreaker = (name, fn, fallback = []) => {
+    const breaker = getBreaker(name, {
+      failureThreshold: 3,
+      resetTimeout: 60000,
+      fallback: () => fallback,
+    });
+    return breaker.execute(fn);
+  };
+
   const searchResults = await Promise.allSettled([
-    githubSearch(chosenTopic),
-    youtubeSearchVideos(chosenTopic),
-    arxivSearch(chosenTopic),
-    redditSearch(chosenTopic),
-    stackOverflowSearch(chosenTopic),
-    hackerNewsSearch(chosenTopic),
-    facebookWebSearch(chosenTopic),
+    withBreaker('github', () => githubSearch(chosenTopic)),
+    withBreaker('youtube', () => youtubeSearchVideos(chosenTopic)),
+    withBreaker('arxiv', () => arxivSearch(chosenTopic)),
+    withBreaker('reddit', () => redditSearch(chosenTopic)),
+    withBreaker('stackoverflow', () => stackOverflowSearch(chosenTopic)),
+    withBreaker('hackernews', () => hackerNewsSearch(chosenTopic)),
+    withBreaker('tavily', () => facebookWebSearch(chosenTopic)),
   ]);
 
   const repos = searchResults[0]?.status === 'fulfilled' ? (searchResults[0].value || []) : [];

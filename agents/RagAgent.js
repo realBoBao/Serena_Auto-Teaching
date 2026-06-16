@@ -1117,6 +1117,24 @@ export async function answerQuestion(query, options = {}) {
     };
   }
 
+  // ── Tier 2: Speculative Execution — kiểm tra prefetch cache trước ──
+  if (!options.skipCache && !options.isDeep) {
+    try {
+      const { getPrefetched } = await import('../lib/speculative_worker.js');
+      const prefetched = await getPrefetched(cleanQuery);
+      if (prefetched) {
+        logger.info(`[Speculative] Prefetch HIT for: "${cleanQuery.slice(0, 50)}..."`);
+        return {
+          answer: prefetched,
+          source: 'prefetch',
+          results: [],
+          confidence: { score: 0.9, level: 'high', signals: {}, usedSelfCheck: false },
+          fromCache: true,
+        };
+      }
+    } catch { /* speculative optional */ }
+  }
+
   // ── Semantic Cache check (skip for deep search or cache bypass) ──────────
   if (!options.skipCache && !options.isDeep) {
     try {
@@ -1354,6 +1372,15 @@ export async function answerQuestion(query, options = {}) {
     : 'Hiện tại tôi chưa thể tạo câu trả lời do không tìm thấy dữ liệu hoặc nghẽn mạng.';
 
   endSpan(rootSpan, { error: lastError, output: finalAnswer.slice(0, 200) });
+
+  // ── Tier 2: Speculative prefetch cho câu hỏi tiếp theo ──
+  try {
+    const { prefetch, predictNextQueries } = await import('../lib/speculative_worker.js');
+    const nextQueries = predictNextQueries(cleanQuery, options.learningPath || []);
+    for (const q of nextQueries.slice(0, 3)) {
+      prefetch(q).catch(() => {});
+    }
+  } catch { /* speculative optional */ }
 
   return {
     answer: finalAnswer,
