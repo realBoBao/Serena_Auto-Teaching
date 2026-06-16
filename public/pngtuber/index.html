@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Serena — AI Companion</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: transparent;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      overflow: hidden;
+    }
+    .avatar-container {
+      position: relative;
+      width: 300px;
+      height: 300px;
+    }
+    .avatar {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      transition: transform 0.1s ease;
+    }
+    .avatar.speaking {
+      animation: bounce 0.3s ease infinite alternate;
+    }
+    .avatar.idle {
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes bounce {
+      from { transform: translateY(0); }
+      to { transform: translateY(-5px); }
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0) rotate(-1deg); }
+      50% { transform: translateY(-8px) rotate(1deg); }
+    }
+    .status {
+      position: absolute;
+      bottom: -30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .status.studying { background: rgba(255,100,100,0.8); }
+    .status.idle { background: rgba(100,100,255,0.8); }
+    .status.speaking { background: rgba(100,255,100,0.8); }
+  </style>
+</head>
+<body>
+  <div class="avatar-container">
+    <img id="avatar" class="avatar idle" src="/pngtuber/avatar_idle.png" alt="Serena">
+    <div id="status" class="status idle">💤 Đang chờ...</div>
+  </div>
+
+  <script>
+    const avatar = document.getElementById('avatar');
+    const status = document.getElementById('status');
+
+    // WebSocket connection
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+
+    ws.onopen = () => {
+      console.log('[PNGTuber] Connected');
+      status.textContent = '✅ Kết nối';
+      status.className = 'status idle';
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleMessage(data);
+      } catch (e) {
+        console.warn('[PNGTuber] Invalid message:', event.data);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('[PNGTuber] Disconnected');
+      status.textContent = '❌ Mất kết nối';
+      status.className = 'status';
+    };
+
+    function handleMessage(data) {
+      switch (data.type) {
+        case 'speaking':
+          avatar.src = '/pngtuber/avatar_speaking.png';
+          avatar.className = 'avatar speaking';
+          status.textContent = '🗣️ Đang nói...';
+          status.className = 'status speaking';
+          break;
+
+        case 'idle':
+          avatar.src = '/pngtuber/avatar_idle.png';
+          avatar.className = 'avatar idle';
+          status.textContent = '💤 Đang chờ...';
+          status.className = 'status idle';
+          break;
+
+        case 'studying':
+          avatar.src = '/pngtuber/avatar_studying.png';
+          avatar.className = 'avatar idle';
+          status.textContent = '📚 Chế độ học';
+          status.className = 'status studying';
+          break;
+
+        case 'emotion':
+          // Map emotion → avatar image
+          const emotionMap = {
+            happy: 'avatar_happy.png',
+            sad: 'avatar_sad.png',
+            thinking: 'avatar_thinking.png',
+            surprised: 'avatar_surprised.png',
+          };
+          const img = emotionMap[data.emotion] || 'avatar_idle.png';
+          avatar.src = `/pngtuber/${img}`;
+          avatar.className = 'avatar idle';
+          break;
+
+        case 'text':
+          status.textContent = data.text.slice(0, 50);
+          break;
+      }
+    }
+
+    // Reconnect on close
+    ws.onclose = () => {
+      setTimeout(() => {
+        console.log('[PNGTuber] Reconnecting...');
+        location.reload();
+      }, 3000);
+    };
+  </script>
+</body>
+</html>
