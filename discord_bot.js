@@ -406,6 +406,27 @@ client.on(Events.MessageCreate, async (message) => {
     }
     cleanupTokenBuckets();
 
+    // ── 0a. Implicit Feedback: Record dwell time from previous outbound ──
+    try {
+      const { implicitFeedback } = await import('./lib/implicit_feedback.js');
+      // Find the most recent outbound link sent to this user and record dwell time
+      const userLinks = implicitFeedback._getRecentUnreplied(message.author.id);
+      if (userLinks && userLinks.length > 0) {
+        const lastLink = userLinks[userLinks.length - 1];
+        const dwellMs = Date.now() - new Date(lastLink.sent_at).getTime();
+        implicitFeedback.recordDwellTime(lastLink.id, message.author.id, dwellMs);
+      }
+    } catch { /* implicit feedback non-critical */ }
+
+    // ── 0a. Mood State Analysis ──
+    try {
+      const { moodState } = await import('./lib/mood_state.js');
+      const moodResult = moodState.analyze(message.author.id, message.content, {
+        hour: new Date().getHours(),
+        messageLength: message.content.length,
+      });
+      moodState.recordState(message.author.id, moodResult);
+    } catch { /* mood analysis non-critical */ }
 
     // ── 0. Socratic Mode: Kiểm tra session đang active ──
     const activeSocratic = await getSocraticSession(message.author.id);
