@@ -715,6 +715,17 @@ route('GET', '/api/shadow/stats', (req, res) => {
   }
 }, { public: true });
 
+// ── Data Federation Stats (Tier 4) ──
+route('GET', '/api/data/stats', async (req, res) => {
+  try {
+    const { getTierStats } = await import('./lib/data_federation.js');
+    const stats = await getTierStats();
+    json(res, { ok: true, ...stats });
+  } catch (err) {
+    json(res, { error: err.message }, 500);
+  }
+}, { public: true });
+
 // ── Outbox Stats (Tier 3) ──
 route('GET', '/api/outbox/stats', async (req, res) => {
   try {

@@ -1,8 +1,9 @@
-import { spawn } from 'child_process';
+﻿import { spawn } from 'child_process';
 import cron from 'node-cron';
 import { addJob, JobType, QueueName } from './lib/task_queue.js';
 import { getLogger } from './lib/logger.js';
 import { writeJsonSafe, readJsonSafe, writeJsonWithBackup, cleanupStaleTempFiles } from './lib/safe_json.js';
+import { writeJsonAtomic } from './lib/atomic_write.js';
 
 const logger = getLogger('Scheduler');
 
@@ -32,6 +33,10 @@ const MEMORY_CRON = '0 2 * * *';
 // ── Disaster Recovery: 3:00 AM Chủ Nhật hàng tuần ──
 // Backup toàn bộ DB (vectors.db, data.db, artifacts) vào thư mục backups/
 const BACKUP_CRON = '0 3 * * 0';
+
+// ── Hot/Cold Data Federation (Tier 4): 4:00 AM Chủ Nhật ──
+// Move dữ liệu cũ >30 ngày từ flashcards.db sang archive.db
+const ARCHIVE_CRON = '0 4 * * 0';
 
 async function runMemoryConsolidation() {
   console.log('[scheduler] Starting memory consolidation at', new Date().toISOString());
@@ -368,34 +373,58 @@ if (!IS_CLOUD_RUN) {
     runBackup();
   }, { timezone: 'America/Los_Angeles' });
 
+  // ── Hot/Cold Data Federation (Tier 4): 4:00 AM Chủ Nhật ──
+  const archiveTask = cron.schedule(ARCHIVE_CRON, () => {
+    logger.info('[scheduler] Archive old data triggered');
+    import('./lib/data_federation.js').then(m => m.archiveOldData()).catch(() => {});
+  }, { timezone: 'America/Los_Angeles' });
+
   // ── EvoAgent: 4:00 AM mỗi ngày — Phân tích logs & tối ưu hệ thống ──
   const EVO_CRON = '0 4 * * *';
   const evoTask = cron.schedule(EVO_CRON, async () => {
     logger.info('[scheduler] EvoAgent analysis triggered');
     try {
-      const { autoEvaluate } = await import('./agents/EvoAgent.js');
-      const result = await autoEvaluate();
+      const { runDailyEvolution } = await import('./agents/EvoAgent.js');
+      const result = await runDailyEvolution();
       await saveLastRun('evo');
       // Gửi Discord notification nếu có warnings
-      if (result?.warnings?.length > 0) {
+      if (result?.systemHealth?.warnings?.length > 0) {
         try {
           const { sendAggregatedWebhook } = await import('./notify_discord.js');
           await sendAggregatedWebhook({
             topic: `🔍 EvoAgent Report — ${new Date().toLocaleDateString('vi-VN')}`,
-            results: result.warnings.map(w => ({
+            results: result.systemHealth.warnings.map(w => ({
               title: w.message || w.type || 'Warning',
               url: '',
               type: 'evo',
               score: 0.5,
               category: 'System',
             })),
-            bullets: `${result.warnings.length} warning(s) detected`,
-            isError: !result.healthy,
+            bullets: `${result.systemHealth.warnings.length} warning(s) detected`,
+            isError: !result.systemHealth.healthy,
           });
         } catch (webhookErr) { /* ignore */ }
       }
+      // Log behavioral recommendations
+      if (result?.behavioral?.recommendations?.length > 0) {
+        logger.info('[scheduler] EvoAgent behavioral recommendations:', result.behavioral.recommendations);
+      }
     } catch (err) {
       logger.error('[scheduler] EvoAgent error:', err?.message || err);
+    }
+  }, { timezone: 'America/Los_Angeles' });
+
+  // ── Memory Decay: 4:30 AM mỗi ngày — Ebbinghaus forgetting curve ──
+  const DECAY_CRON = '30 4 * * *';
+  const decayTask = cron.schedule(DECAY_CRON, async () => {
+    logger.info('[scheduler] Memory decay triggered');
+    try {
+      const { memoryDecay } = await import('./lib/memory_decay.js');
+      const result = memoryDecay.runDailyDecay();
+      await saveLastRun('decay');
+      logger.info(`[scheduler] Memory decay complete: ${result.totalChanges} values decayed across ${result.usersProcessed} users`);
+    } catch (err) {
+      logger.error('[scheduler] Memory decay error:', err?.message || err);
     }
   }, { timezone: 'America/Los_Angeles' });
 
