@@ -13,6 +13,7 @@
 import { getLogger } from '../lib/logger.js';
 import { classifyIntentLocal, classifyIntentLlm } from '../lib/edge_router.js';
 import { info, warn } from '../lib/structured_logger.js';
+import { isEnabled, setEnabled, getAll as getAllFlags } from '../lib/feature_flags.js';
 
 const logger = getLogger('RouterAgent');
 
@@ -177,6 +178,8 @@ class RouterAgent {
       throw new Error(`Unknown agent: ${agentKey}`);
     }
     AGENT_REGISTRY[agentKey].enabled = enabled;
+    // Sync với feature flags
+    setEnabled(agentKey, enabled);
     logger.info(`Agent ${agentKey} ${enabled ? 'ENABLED' : 'DISABLED'}`);
     return this.getAgentStates();
   }
