@@ -132,6 +132,18 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.warn('[SemanticRouter] Init failed, using keyword fallback:', err.message);
   });
 
+  // Load plugins
+  try {
+    const { PluginLoader } = await import('./lib/plugin_loader.js');
+    await PluginLoader.loadAll();
+    const plugins = PluginLoader.list();
+    if (plugins.length > 0) {
+      console.log(`[Plugins] Loaded: ${plugins.map(p => p.name).join(', ')}`);
+    }
+  } catch (err) {
+    console.error('[PluginLoader] Init failed:', err.message);
+  }
+
   console.log(`Discord bot ready as ${readyClient.user.tag}`);
 });
 
@@ -478,6 +490,8 @@ client.on(Events.MessageCreate, async (message) => {
           '`!path <topic>` — Tạo lộ trình học từ Knowledge Graph\n\n' +
           '**⚙️ Hệ thống:**\n' +
           '`!schedule` — Đồng bộ thời khóa biểu\n' +
+          '`!plugins` — Xem danh sách plugins\n' +
+          '`!plugin unload <name>` — Unload plugin (admin)\n' +
           '`!help` — Hiện danh sách lệnh này\n\n' +
           '**📊 Chất lượng:** `!f1stats` | **🔒 Bảo mật:** `!audit` | **🧠 Học tập:** `!quiz` `!review` `!learn`',
         allowedMentions: { parse: [], repliedUser: false },
@@ -2223,6 +2237,44 @@ client.on(Events.MessageCreate, async (message) => {
     });
   }
 });
+
+// ── !plugins command ──
+if (content === '!plugins') {
+  try {
+    const { PluginLoader } = await import('./lib/plugin_loader.js');
+    const plugins = PluginLoader.list();
+    if (plugins.length === 0) {
+      await message.reply('Không có plugin nào đang chạy.');
+    } else {
+      const lines = plugins.map(p =>
+        `**${p.name}** v${p.version} — intents: ${p.intents.join(', ')}\n` +
+        `  permissions: \`${p.permissions.join(', ')}\``
+      ).join('\n\n');
+      await message.reply({
+        embeds: [{ title: `Loaded plugins (${plugins.length})`, description: lines }],
+      });
+    }
+  } catch (err) {
+    await message.reply('Lỗi khi lấy danh sách plugins: ' + err.message);
+  }
+}
+
+// ── !plugin unload <name> command (admin only) ──
+if (content.startsWith('!plugin unload ')) {
+  const adminIds = process.env.ADMIN_IDS ? process.env.ADMIN_IDS.split(',') : [];
+  if (!adminIds.includes(message.author.id)) {
+    await message.reply('❌ Cần quyền admin để unload plugin.');
+  } else {
+    const name = content.slice(16).trim();
+    try {
+      const { PluginLoader } = await import('./lib/plugin_loader.js');
+      const ok = await PluginLoader.unload(name);
+      await message.reply(ok ? `✅ Đã unload plugin "${name}"` : `❌ Không tìm thấy plugin "${name}"`);
+    } catch (err) {
+      await message.reply('Lỗi khi unload: ' + err.message);
+    }
+  }
+}
 
 async function shutdown(signal) {
   console.log(`Received ${signal}. Shutting down Discord bot...`);

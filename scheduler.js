@@ -1,7 +1,8 @@
-import { spawn } from 'child_process';
+﻿import { spawn } from 'child_process';
 import cron from 'node-cron';
 import { addJob, JobType, QueueName } from './lib/task_queue.js';
-import { getLogger } from './lib/logger.js';import { writeJsonAtomic, readJsonSafe } from './lib/atomic_write.js';
+import { getLogger } from './lib/logger.js';
+import { writeJsonSafe, readJsonSafe, writeJsonWithBackup, cleanupStaleTempFiles } from './lib/safe_json.js';
 
 const logger = getLogger('Scheduler');
 
@@ -275,13 +276,8 @@ async function saveLastRun(type, status = 'done') {
   }
 }
 
-// Kiểm tra xem job có đang chạy không (sync version for use in non-async contexts)
-function isJobRunning(type) {
-  try {
-    const fs = require('fs');
-    if (!fs.existsSync(CATCH_UP_FILE)) return false;
-    const raw = fs.readFileSync(CATCH_UP_FILE, 'utf8');
-    const lastRuns = JSON.parse(raw || '{}');
+// Kiểm tra xem job có đang chạy không — dùng readJsonSafe async
+async function isJobRunning(type) { try { const lastRuns = await readJsonSafe(CATCH_UP_FILE, {}); return lastRuns[type]?.status === 'running'; } catch { return false; } }');
     return lastRuns[type]?.status === 'running';
   } catch {
     return false;
@@ -319,7 +315,7 @@ if (RUN_ON_START) {
   }, 30000);
 }
 
-// ── Only schedule cron jobs when NOT on Cloud Run ──
+── Dọn file .tmp còn sót từ crash trước ──\ncleanupStaleTempFiles('.').catch(() => {});\n\n// ── Only schedule cron jobs when NOT on Cloud Run ──
 // On Cloud Run, use Google Cloud Scheduler → HTTP POST → /scheduler/:job
 let task, memoryTask, backupTask;
 

@@ -1,0 +1,16 @@
+{
+  "name": "weather",
+  "version": "1.0.0",
+  "author": "community-dev",
+  "description": "Trả lời câu hỏi về thời tiết qua OpenWeather API",
+  "entry": "agent.js",
+  "permissions": [
+    "llm:ask",
+    "kg:read",
+    "discord:reply"
+  ],
+  "intents": ["WEATHER"],
+  "config_schema": {
+    "OPENWEATHER_API_KEY": { "type": "string", "required": false, "secret": true }
+  }
+}
