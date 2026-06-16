@@ -833,6 +833,21 @@ const server = http.createServer(async (req, res) => {
   req.rawBody = rawBody;
   try { req.body = JSON.parse(rawBody || '{}'); } catch { req.body = {}; }
 
+  // ── Tier 1+2: PNGTuber static files ──
+  if (pathname.startsWith('/pngtuber')) {
+    const filePath = path.join(PUBLIC_DIR, 'pngtuber', pathname.replace('/pngtuber', '') || 'index.html');
+    try {
+      const content = await fs.promises.readFile(filePath);
+      const ext = path.extname(filePath);
+      const mime = { '.html': 'text/html', '.png': 'image/png', '.jpg': 'image/jpeg', '.css': 'text/css', '.js': 'text/javascript' }[ext] || 'text/plain';
+      res.writeHead(200, { 'Content-Type': mime });
+      res.end(content);
+    } catch {
+      notFound(res);
+    }
+    return;
+  }
+
   // Route matching
   const matched = matchRoute(method, pathname);
   if (!matched) return notFound(res);
@@ -857,6 +872,15 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   const keyStatus = !API_KEY ? 'missing' : (API_KEY === 'change-me-in-production' ? 'default' : 'custom');
   logInfo('REST API', 'server listening', { port: PORT, api_key_status: keyStatus });
+
+  // ── Tier 1+2: PNGTuber WebSocket Server ──
+  try {
+    const { init: initPNGTuber } = await import('./lib/pngtuber_server.js');
+    initPNGTuber(server);
+    logInfo('[PNGTuber] WebSocket server initialized');
+  } catch (err) {
+    logError('[PNGTuber] Init failed', err.message);
+  }
 });
 
 // Graceful shutdown — close server, DBs, flush caches
