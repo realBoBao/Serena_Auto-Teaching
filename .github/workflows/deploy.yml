@@ -27,7 +27,8 @@ jobs:
           username: ${{ secrets.GCP_USERNAME }}
           key: ${{ secrets.GCP_SSH_KEY }}
           port: ${{ secrets.GCP_SSH_PORT || '22' }}
-          timeout: 120s
+          timeout: 600s
+          command_timeout: 20m
           envs: GH_PAT
           script: |
             set -e
@@ -36,7 +37,7 @@ jobs:
             # Ensure project directory exists
             if [ ! -d ~/ai-brain ]; then
               echo "📁 Cloning project..."
-              git clone https://github.com/realBoBao/Serena_Auto-Teaching.git ~/ai-brain
+              git clone https://github.com/realBoBao/Serena_Project00_Auto-Teaching.git ~/ai-brain
             fi
 
             cd ~/ai-brain
