@@ -9,9 +9,6 @@ on:
   push:
     branches: [main]
 
-env:
-  NODE_VERSION: '20'
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -27,9 +24,7 @@ jobs:
           username: ${{ secrets.GCP_USERNAME }}
           key: ${{ secrets.GCP_SSH_KEY }}
           port: ${{ secrets.GCP_SSH_PORT || '22' }}
-          timeout: 600s
-          command_timeout: 20m
-          envs: GH_PAT
+          timeout: 300s
           script: |
             set -e
             echo "=== Starting deployment at $(date) ==="
@@ -64,30 +59,9 @@ jobs:
             npm install --legacy-peer-deps --only-production 2>&1 | tail -10
             echo "📦 Installed $(ls node_modules | wc -l) packages"
 
-            # Run tests (optional, skip if no API keys)
-            echo "🧪 Running tests..."
-            npm test 2>&1 | tail -5 || echo "⚠️ Tests skipped (missing API keys)"
-
             # Restart PM2
             echo "🔄 Restarting PM2..."
             pm2 restart AI_Brain --update-env 2>/dev/null || pm2 start ecosystem.config.cjs
             pm2 save
 
             echo "✅ Deployment complete at $(date)"
-            echo "✅ Deployment complete at $(date)"
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-
-      - name: Notify Discord (Success)
-        if: success()
-        run: |
-          curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
-            -H "Content-Type: application/json" \
-            -d '{"embeds":[{"title":"✅ Deployment Complete","description":"Code pushed to main and deployed successfully trên AI Phase 15","color":65280}]}'
-
-      - name: Notify Discord (Failure)
-        if: failure()
-        run: |
-          curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
-            -H "Content-Type: application/json" \
-            -d '{"embeds":[{"title":"❌ Deployment Failed","description":"Check GitHub Actions logs for details","color":16711680}]}'
