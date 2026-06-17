@@ -13,6 +13,7 @@
 import { getLogger } from '../lib/logger.js';
 import { classifyIntentLocal, classifyIntentLlm } from '../lib/edge_router.js';
 import { info, warn } from '../lib/structured_logger.js';
+import { searchPointers, fetchPointerContent } from '../lib/lazy_knowledge.js';
 import { isEnabled, setEnabled, getAll as getAllFlags } from '../lib/feature_flags.js';
 
 const logger = getLogger('RouterAgent');
@@ -245,6 +246,30 @@ class RouterAgent {
 
       // Gọi agent function phù hợp
       const result = await this._dispatch(agentKey, module, intent, context);
+
+      // ── Tier 1: Lazy Knowledge Pointers — enrich RAG with JIT content ──
+      if (intent === 'RAG' || intent === 'CHAT' || intent === 'MEMORY') {
+        try {
+          const pointers = await searchPointers(context.query, 3);
+          if (pointers.length > 0) {
+            // JIT fetch content for top matching pointer
+            const topPointer = pointers[0];
+            if (topPointer.url) {
+              const jitContent = await fetchPointerContent(topPointer);
+              if (jitContent) {
+                context.options = context.options || {};
+                context.options.externalContext = [
+                  `[${topPointer.repo}] ${topPointer.topic}:\n${jitContent.slice(0, 2000)}`,
+                  ...(context.options.externalContext || []),
+                ];
+                logger.info(`[RouterAgent] Lazy knowledge: enriched with "${topPointer.topic}" from ${topPointer.repo}`);
+              }
+            }
+          }
+        } catch (err) {
+          logger.debug(`[RouterAgent] Lazy knowledge search failed: ${err.message}`);
+        }
+      }
 
       // Update stats
       this._stats.agentCalls[agentKey] = (this._stats.agentCalls[agentKey] || 0) + 1;

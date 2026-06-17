@@ -13,6 +13,20 @@
 import { ask } from '../lib/llm.js';
 import { getLogger } from '../lib/logger.js';
 import { buildXmlPrompt, wrapUserMessage } from '../lib/prompt_xml.js';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+
+// ── Tier 3: Virtual CS Curriculum (TeachYourselfCS + ossu/computer-science) ──
+let _csCurriculum = null;
+function getCsCurriculum() {
+  if (_csCurriculum) return _csCurriculum;
+  try {
+    _csCurriculum = JSON.parse(readFileSync(resolve('./data/cs_curriculum.json'), 'utf8'));
+  } catch {
+    _csCurriculum = { subjects: [] };
+  }
+  return _csCurriculum;
+}
 
 // Dynamic requires để tránh circular dependency + test mock issues
 let _sessionStore = null;
@@ -372,4 +386,52 @@ Chỉ trả về topic, không có gì khác. Ví dụ: "binary search", "TCP ha
   } catch {
     return null;
   }
+}
+
+/**
+ * Tier 3: Virtual CS Curriculum — Get Socratic prompt for any CS subject.
+ * Uses the static curriculum JSON (TeachYourselfCS + ossu/computer-science).
+ *
+ * @param {string} subjectId — e.g. "algorithms", "networking", "distributed_systems"
+ * @returns {Promise<{subject: object, prompt: string, topics: Array}|null>}
+ */
+export async function getCsSocraticPrompt(subjectId) {
+  const curriculum = getCsCurriculum();
+  const subject = curriculum.subjects?.find(s => s.id === subjectId);
+
+  if (!subject) {
+    // Try fuzzy match by name
+    const matched = curriculum.subjects?.find(s =>
+      s.name.toLowerCase().includes(subjectId.toLowerCase()) ||
+      subjectId.toLowerCase().includes(s.name.toLowerCase())
+    );
+    if (!matched) return null;
+    return formatCsPrompt(matched);
+  }
+
+  return formatCsPrompt(subject);
+}
+
+function formatCsPrompt(subject) {
+  const topicsList = subject.topics.map((t, i) => `${i + 1}. ${t}`).join('\n');
+  const sampleQuestions = subject.socratic_prompts?.slice(0, 3).map((q, i) => `${i + 1}. ${q}`).join('\n') || '';
+
+  return {
+    subject: { id: subject.id, name: subject.name },
+    topics: subject.topics,
+    prompt: `📚 **${subject.name}** — Chương trình học:\n\n${topicsList}\n\n💡 **Câu hỏi Socratic mẫu:**\n${sampleQuestions}`,
+  };
+}
+
+/**
+ * List all available CS subjects in the curriculum.
+ * @returns {Promise<Array>}
+ */
+export async function listCsSubjects() {
+  const curriculum = getCsCurriculum();
+  return (curriculum.subjects || []).map(s => ({
+    id: s.id,
+    name: s.name,
+    topicCount: s.topics.length,
+  }));
 }

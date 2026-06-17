@@ -98,6 +98,13 @@ async function getConfidenceScorer() {
   return _confidenceScorer;
 }
 
+// Datalog-based RAG verifier (lazy import)
+let _ragVerifier = null;
+async function getRagVerifier() {
+  if (!_ragVerifier) _ragVerifier = await import('../lib/rag_verifier.js');
+  return _ragVerifier;
+}
+
 // ── Confidence Scoring Helper ──────────────────────────────────────────────
 // Wraps answer with confidence score and optional Discord suffix
 async function applyConfidenceScoring({ question, answer, results, jaccardSim, skipSelfCheck }) {
@@ -139,7 +146,28 @@ async function applyConfidenceScoring({ question, answer, results, jaccardSim, s
 
     // Format Discord suffix for medium/low confidence
     const suffix = scorer.ConfidenceScorer.formatDiscordSuffix(confidence);
-    const finalAnswer = suffix ? answer + suffix : answer;
+    let finalAnswer = suffix ? answer + suffix : answer;
+
+    // ── Datalog Output Grounding (Tier 3) ─────────────────────────────────
+    // Only run when confidence is NOT high — saves 2 LLM calls per answer
+    let logicCheck = null;
+    if (confidence.level !== 'high') {
+      try {
+        const verifier = await getRagVerifier();
+        logicCheck = await verifier.RagVerifier.verify(answer, results || []);
+
+        if (logicCheck.status === 'CONTRADICTED') {
+          logger.warn(`[RagVerifier] Logic contradiction: ${JSON.stringify(logicCheck.contradictions)}`);
+          confidence.level = 'low'; // force down — logic contradiction is serious
+          finalAnswer += `\n\n> ⚠️ **Mâu thuẫn logic phát hiện**: ${logicCheck.contradictions.map(c => `${c.predicate}(${c.args.join(',')}) mâu thuẫn với ${c.conflictsWith}`).join('; ')}`;
+        } else if (logicCheck.status === 'PARTIAL') {
+          logger.warn(`[RagVerifier] Unverified claims: ${logicCheck.unverifiedClaims.join(', ')}`);
+        }
+      } catch (verifierErr) {
+        // Verifier must never break the pipeline
+        logger.debug('[RagVerifier] Error:', verifierErr?.message || verifierErr);
+      }
+    }
 
     // ── Semantic Cache: store successful Q&A for future reuse ──────────────
     try {
@@ -153,6 +181,7 @@ async function applyConfidenceScoring({ question, answer, results, jaccardSim, s
     return {
       answer: finalAnswer,
       confidence,
+      logicCheck,
       answered: true,
     };
   } catch (err) {

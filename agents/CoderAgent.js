@@ -26,6 +26,8 @@ import { HumanMessage } from '@langchain/core/messages';
 import { getLogger } from '../lib/logger.js';
 import { totSolve } from '../lib/tot_mcts.js';
 import { detectAlgorithm, runTests } from '../lib/test_harness.js';
+import { buildXmlPrompt, wrapContext } from '../lib/prompt_xml.js';
+import { findCliCommands } from '../lib/cli_tool_finder.js';
 
 const logger = getLogger('CoderAgent');
 
@@ -670,4 +672,33 @@ export function getCoderAgentLanguages() {
  */
 export async function solveProblem(problem, options = {}) {
   return solveWithDebugLoop(problem, options);
+}
+
+/**
+ * Tier 2: JIT CLI Tooling — Find exact CLI commands from the-book-of-secret-knowledge.
+ * No hallucination: returns real commands parsed from the source repo.
+ *
+ * @param {string} query — e.g. "docker", "nginx", "ssh", "systemd"
+ * @returns {Promise<{commands: Array, message: string}>}
+ */
+export async function findCliTool(query) {
+  logger.info(`[CoderAgent] Finding CLI commands for: ${query}`);
+
+  const result = await findCliCommands(query, 5);
+
+  if (result.commands.length === 0) {
+    return {
+      commands: [],
+      message: `❌ Không tìm thấy lệnh CLI cho "${query}" trong the-book-of-secret-knowledge.`,
+    };
+  }
+
+  const lines = result.commands.map((c, i) =>
+    `${i + 1}. **${c.description}**\n\`\`\`bash\n${c.command}\n\`\`\``
+  );
+
+  return {
+    commands: result.commands,
+    message: `🔧 **CLI Commands cho "${query}"** (từ ${result.source}):\n\n${lines.join('\n\n')}`,
+  };
 }
