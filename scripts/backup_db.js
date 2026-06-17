@@ -143,3 +143,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error('❌ Backup failed:', err);
     process.exit(1);
   });
+}

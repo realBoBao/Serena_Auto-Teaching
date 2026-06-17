@@ -48,4 +48,84 @@ export class SecurityAuditor {
   async auditFile(path) { return auditFile(path); }
 }
 
-export default { auditCode, auditFile, SecurityAuditor };
+/**
+ * Anti-Vibe-Coding Audit — Tier 1 + Tier 3 rules.
+ * Flags: missing try/catch, no optional chaining, unnecessary dependencies.
+ */
+export function auditVibeCoding(code, options = {}) {
+  const issues = [];
+  const lines = code.split('\n');
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    const lineNum = i + 1;
+
+    // Tier 3: Flag unnecessary imports (stdlib alternatives exist)
+    const stdlibReplacements = {
+      'from \'moment\'': 'Intl.DateTimeFormat (built-in)',
+      'from "moment"': 'Intl.DateTimeFormat (built-in)',
+      'from \'lodash\'': 'native JS (spread, Object.assign, etc.)',
+      'from "lodash"': 'native JS (spread, Object.assign, etc.)',
+      'from \'axios\'': 'fetch (built-in, Node 18+)',
+      'from "axios"': 'fetch (built-in, Node 18+)',
+      'from \'uuid\'': 'crypto.randomUUID (built-in)',
+      'from "uuid"': 'crypto.randomUUID (built-in)',
+      'from \'nanoid\'': 'crypto.randomUUID (built-in)',
+      'from "nanoid"': 'crypto.randomUUID (built-in)',
+    };
+    for (const [pattern, replacement] of Object.entries(stdlibReplacements)) {
+      if (line.includes(pattern)) {
+        issues.push({
+          rule: 'T3-STDlib',
+          severity: 'warn',
+          line: lineNum,
+          msg: `Unnecessary dependency. Use ${replacement} instead.`,
+        });
+      }
+    }
+
+    // Tier 1: Flag await without try/catch (simple heuristic)
+    if (line.includes('await ') && !line.includes('try') && !line.includes('catch')) {
+      // Check if inside a try block (look back up to 10 lines)
+      let inTry = false;
+      for (let j = Math.max(0, i - 10); j < i; j++) {
+        if (lines[j].includes('try {') || lines[j].includes('try{')) {
+          inTry = true;
+          break;
+        }
+      }
+      if (!inTry) {
+        issues.push({
+          rule: 'T1-NO-CATCH',
+          severity: 'error',
+          line: lineNum,
+          msg: 'await without try/catch — handle errors defensively.',
+        });
+      }
+    }
+
+    // Tier 1: Flag nested property access without optional chaining
+    const nestedAccess = line.match(/\w+\.\w+\.\w+/);
+    if (nestedAccess && !line.includes('?.') && !line.includes('//') && !line.includes('*')) {
+      issues.push({
+        rule: 'T1-NO-OPTIONAL-CHAINING',
+        severity: 'warn',
+        line: lineNum,
+        msg: `Nested access "${nestedAccess[0]}" without ?. — use optional chaining.`,
+      });
+    }
+  }
+
+  const errors = issues.filter(i => i.severity === 'error').length;
+  const warns = issues.filter(i => i.severity === 'warn').length;
+
+  return {
+    issues,
+    summary: issues.length === 0
+      ? '✅ No vibe-coding issues found'
+      : `⚠️ ${errors} error(s), ${warns} warning(s)`,
+    riskLevel: errors > 0 ? 'high' : warns > 0 ? 'medium' : 'low',
+  };
+}
+
+export default { auditCode, auditFile, auditVibeCoding, SecurityAuditor };

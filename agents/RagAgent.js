@@ -988,7 +988,7 @@ async function synthesizeAnswer(query, context, sourceType, userId = null) {
   if (userId) {
     try {
       const { userProfileManager } = await import('../lib/user_profile.js');
-      profileContext = userProfileManager.buildSystemContext(userId);
+      profileContext = await userProfileManager.buildSystemContext(userId);
     } catch { /* profile optional */ }
   }
 

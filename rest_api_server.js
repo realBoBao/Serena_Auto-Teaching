@@ -715,6 +715,21 @@ route('GET', '/api/shadow/stats', async (req, res) => {
   }
 }, { public: true });
 
+// ── Anti-Vibe-Coding Audit (Tier 1 + Tier 3) ──
+route('POST', '/api/audit/vibe', async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code || typeof code !== 'string') {
+      return json(res, { error: 'Missing code string in body' }, 400);
+    }
+    const { auditVibeCoding } = await import('./agents/SecurityAuditor.js');
+    const result = auditVibeCoding(code);
+    json(res, { ok: true, ...result });
+  } catch (err) {
+    json(res, { error: err.message }, 500);
+  }
+}, { public: true });
+
 // ── Data Federation Stats (Tier 4) ──
 route('GET', '/api/data/stats', async (req, res) => {
   try {

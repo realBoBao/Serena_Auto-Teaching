@@ -669,7 +669,7 @@ client.on(Events.MessageCreate, async (message) => {
       try {
         const { userProfileManager } = await import('./lib/user_profile.js');
         const userId = message.author.id;
-        const profile = userProfileManager.getProfile(userId, message.author.username);
+        const profile = await userProfileManager.getProfile(userId, message.author.username);
         const stats = profile.topic_stats || {};
 
         const totalQuestions = Object.values(stats).reduce((s, t) => s + (t.asked || 0), 0);
@@ -714,10 +714,10 @@ client.on(Events.MessageCreate, async (message) => {
         const validDepths = ['concise', 'detailed', 'auto'];
 
         if (validStyles.includes(value)) {
-          userProfileManager.setUserPreference(message.author.id, { style: value });
+          await userProfileManager.setUserPreference(message.author.id, { style: value });
           await message.reply(`✅ Đã cập nhật phong cách học: \`${value}\``);
         } else if (validDepths.includes(value)) {
-          userProfileManager.setUserPreference(message.author.id, { depth: value });
+          await userProfileManager.setUserPreference(message.author.id, { depth: value });
           await message.reply(`✅ Đã cập nhật độ chi tiết: \`${value}\``);
         } else {
           await message.reply('📋 Dùng: `!prefer example_first | theory_first | code_heavy | visual | concise | detailed | auto`');
