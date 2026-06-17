@@ -620,6 +620,31 @@ client.on(Events.MessageCreate, async (message) => {
       }
     }
 
+    // ── Tier 1: Persona Routing (AGI giảo) ──
+    // Phân loại intent trước: THERAPIST vs TECHNICAL
+    // Giảm ~70% API cost bỏ qua RAG 7 tầng khi user chỉ cần tâm sự
+    let personaIntent = null;
+    try {
+      const { classifyIntentSemantic } = await import('./lib/semantic_router.js');
+      personaIntent = await classifyIntentSemantic(content);
+    } catch { /* persona routing non-critical */ }
+
+    // Therapist bypass: không qua RAG pipeline, dùng LLM nhẹ
+    if (personaIntent === 'THERAPIST' && !content.startsWith('!')) {
+      try {
+        const { ask } = await import('./lib/llm.js');
+        const response = await ask(content, {
+          systemPrompt: 'Bạn là Serena, người bạn đồng hành thấu cảm. Lắng nghe, đặt câu hỏi mở, không phán xét. Nếu cần, gợi ý nhẹ nhàng cách giải tỏa stress. Trả lời ngắn gọn, ấm áp, bằng tiếng Việt.',
+          maxTokens: 512,
+          temperature: 0.8,
+        });
+        await message.reply(response.text || response);
+      } catch {
+        await message.reply('Mình nghe bạn nè. Kể thêm đi 💙');
+      }
+      return;
+    }
+
     // ── Router: Phân loại intent (Semantic + Keyword fallback) ──
     const intent = await classifyIntentAsync(message.content);
 
