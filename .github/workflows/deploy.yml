@@ -54,9 +54,7 @@ jobs:
 
             # Install dependencies
             echo "📦 Installing dependencies..."
-            rm -f package-lock.json
-            rm -rf node_modules
-            npm install --legacy-peer-deps --only-production 2>&1 | tail -10
+            npm install --legacy-peer-deps --omit=dev --no-audit --no-fund 2>&1 | tail -10
             echo "📦 Installed $(ls node_modules | wc -l) packages"
 
             # Rebuild native modules for current Node version (sqlite3 needs C++ compiler)
