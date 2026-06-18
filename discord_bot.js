@@ -689,6 +689,22 @@ client.on(Events.MessageCreate, async (message) => {
       });
     }
 
+    // ── RAG intent: !ask command ──
+    if (intent === 'RAG' && message.content.startsWith('!ask ')) {
+      try {
+        const query = message.content.slice(5).trim();
+        if (!query) {
+          return message.reply('📋 Dùng: `!ask <câu hỏi>` hoặc `!ask <câu hỏi> --deep`');
+        }
+        const { answerQuestion } = await import('./agents/RagAgent.js');
+        const ragResult = await answerQuestion(query, { userId: message.author.id });
+        await message.reply(ragResult.answer || ragResult.text || 'Không tìm thấy câu trả lời.');
+      } catch (err) {
+        await message.reply(`❌ Lỗi RAG: ${err?.message || err}`);
+      }
+      return;
+    }
+
     // ── !f1stats command: F1 Score Dashboard ──
     if (message.content === '!f1stats' || message.content.startsWith('!f1stats ')) {
       try {
