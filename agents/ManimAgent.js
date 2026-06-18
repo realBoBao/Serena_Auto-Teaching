@@ -700,3 +700,20 @@ export function createAnimationAsync(description) {
   });
   return { jobId, promise };
 }
+
+// ── Agent Lifecycle ──
+
+export class ManimAgent {
+  async onLoad() {
+    logger.info('[ManimAgent] loaded');
+  }
+
+  async onMessage(context) {
+    const result = await generateManimCode(context.query);
+    return { success: true, code: result };
+  }
+
+  async onUnload() {
+    logger.info('[ManimAgent] unloaded');
+  }
+}

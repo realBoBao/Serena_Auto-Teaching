@@ -5,6 +5,7 @@
  */
 
 import { KnowledgeGraphViz } from './graph_viz.js';
+import { startCamera, stopCamera, captureAndAnalyze } from './camera.js';
 
 const API_BASE = window.location.origin;
 let API_KEY = localStorage.getItem('ai_brain_api_key') || '';
@@ -134,7 +135,30 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (tab.dataset.tab === 'flashcards') loadFlashcards();
     if (tab.dataset.tab === 'stats') loadStats();
     if (tab.dataset.tab === 'graph') loadGraphPreview();
+    if (tab.dataset.tab === 'camera') {
+      // Reset camera state when switching to camera tab
+      stopCamera();
+    }
   });
+});
+
+// ── Camera Controls ─────────────────────────────────────────────────────────
+document.getElementById('cameraStartBtn')?.addEventListener('click', async () => {
+  const ok = await startCamera();
+  if (!ok) {
+    alert('Không thể truy cập camera. Vui lòng cho phép quyền camera trong trình duyệt.');
+  }
+});
+
+document.getElementById('cameraStopBtn')?.addEventListener('click', () => {
+  stopCamera();
+});
+
+document.getElementById('cameraCaptureBtn')?.addEventListener('click', async () => {
+  const result = await captureAndAnalyze();
+  if (result) {
+    console.log('[Camera] Detected:', result);
+  }
 });
 
 // ── Flashcards (with Offline Support) ──

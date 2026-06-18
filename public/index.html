@@ -27,6 +27,7 @@
     <nav class="tabs">
       <button class="tab active" data-tab="flashcards">📚 Flashcards</button>
       <button class="tab" data-tab="ask">❓ Hỏi đáp</button>
+      <button class="tab" data-tab="camera">📷 Camera</button>
       <button class="tab" data-tab="graph">🕸️ Knowledge</button>
       <button class="tab" data-tab="stats">📊 Stats</button>
     </nav>
@@ -74,6 +75,40 @@
             <div id="answerText"></div>
             <div id="answerSource" class="source-info"></div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Camera Tab — Emotion Detection -->
+    <section id="camera-tab" class="tab-content">
+      <div class="section-header">
+        <h2>📷 Nhận diện Cảm xúc</h2>
+        <span id="emotionStatus" class="badge">Sẵn sàng</span>
+      </div>
+      <div class="camera-container">
+        <div class="video-wrapper">
+          <video id="cameraVideo" autoplay playsinline muted></video>
+          <canvas id="cameraCanvas" class="hidden"></canvas>
+          <div id="cameraPlaceholder" class="camera-placeholder">
+            <span class="camera-icon">📷</span>
+            <p>Nhấn bên dưới để bật camera</p>
+            <p class="camera-hint">AI sẽ nhận diện cảm xúc trên khuôn mặt bạn</p>
+          </div>
+          <div id="emotionOverlay" class="emotion-overlay hidden">
+            <span id="emotionIcon" class="emotion-icon"></span>
+            <span id="emotionLabel" class="emotion-label"></span>
+            <span id="emotionConfidence" class="emotion-confidence"></span>
+          </div>
+        </div>
+        <div class="camera-controls">
+          <button id="cameraStartBtn" class="btn btn-primary">🎥 Bật Camera</button>
+          <button id="cameraCaptureBtn" class="btn btn-secondary hidden">📸 Chụp & Phân tích</button>
+          <button id="cameraStopBtn" class="btn btn-danger hidden">⏹️ Tắt</button>
+        </div>
+        <div id="emotionResult" class="emotion-result hidden">
+          <h3>Phân tích cảm xúc</h3>
+          <div id="emotionDetails"></div>
+          <div id="emotionAdvice"></div>
         </div>
       </div>
     </section>

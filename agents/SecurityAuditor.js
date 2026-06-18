@@ -46,6 +46,18 @@ export async function auditFile(filePath) {
 export class SecurityAuditor {
   async audit(code) { return auditCode(code); }
   async auditFile(path) { return auditFile(path); }
+
+  async onLoad() {
+    logger.info('[SecurityAuditor] loaded');
+  }
+
+  async onMessage(context) {
+    return this.audit(context);
+  }
+
+  async onUnload() {
+    logger.info('[SecurityAuditor] unloaded');
+  }
 }
 
 /**

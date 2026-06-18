@@ -503,3 +503,20 @@ export async function describeImageFromUrl(imageUrl, userContext = '') {
     return { success: false, error: err.message };
   }
 }
+
+// ── Agent Lifecycle ──
+
+export class VisionAgent {
+  async onLoad() {
+    logger.info('[VisionAgent] loaded');
+  }
+
+  async onMessage(context) {
+    const result = await processVisionMessage(context);
+    return result;
+  }
+
+  async onUnload() {
+    logger.info('[VisionAgent] unloaded');
+  }
+}

@@ -258,6 +258,21 @@ ${history}`,
     const lower = text.toLowerCase();
     return signals.some(s => lower.includes(s)) || text.trim().length < 3;
   }
+
+  async onLoad() {
+    logger.info('[SocraticAgent] loaded');
+  }
+
+  async onMessage(context) {
+    const topic = context.topic || context.query || 'general';
+    const question = context.query || '';
+    const result = await SocraticAgent.generateQuestion(topic, question, 1);
+    return { success: true, question: result, topic };
+  }
+
+  async onUnload() {
+    logger.info('[SocraticAgent] unloaded');
+  }
 }
 
 // ── Discord integration helpers ──
