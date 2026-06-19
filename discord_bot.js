@@ -658,6 +658,17 @@ client.on(Events.MessageCreate, async (message) => {
       }
     }
 
+    // ── !done: Đánh dấu đã giải bài tập Algo ──
+    if (content === '!done' || content === '!done ') {
+      try {
+        const { execSync } = await import('child_process');
+        execSync('node scripts/algo_webhook.js done', { encoding: 'utf8', timeout: 10000 });
+        return message.reply('✅ Đã đánh dấu giải xong! Đáp án sẽ không gửi lúc 23:59.');
+      } catch (err) {
+        return message.reply(`❌ Lỗi: ${err?.message || err}`);
+      }
+    }
+
     // ── 0. Socratic Mode: Kiểm tra session đang active ──
     const activeSocratic = await getSocraticSession(message.author.id);
     if (activeSocratic) {
@@ -695,7 +706,7 @@ client.on(Events.MessageCreate, async (message) => {
       }
     }
 
-    // ── Tier 1: Persona Routing (AGI giảo) ──
+    // ── Tier 1: Persona Routing (AGI giả) ──
     // Phân loại intent trước: THERAPIST vs TECHNICAL
     // Giảm ~70% API cost bỏ qua RAG 7 tầng khi user chỉ cần tâm sự
     let personaIntent = null;

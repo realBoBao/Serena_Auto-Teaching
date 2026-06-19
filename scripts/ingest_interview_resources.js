@@ -1,107 +1,190 @@
 /**
  * scripts/ingest_interview_resources.js — Tier 1: Static RAG Ingestion
  *
- * Clone và nạp nội dung từ các repo GitHub interview resources vào Vector DB.
+ * Nạp nội dung từ các repo GitHub interview resources vào Vector DB.
  * Chạy 1 lần duy nhất, không cần maintain.
  *
  * Usage: node scripts/ingest_interview_resources.js
  */
 
-import { getDb } from '../lib/sqlite_adapter.js';
+import { DatabaseSync } from 'node:sqlite';
 import { embedText } from '../lib/embeddings.js';
+import { chunkText } from '../lib/chunking.js';
 
-// ── Sources ─────────────────────────────────────────────────────────────────
+// ── Sources với difficulty & prerequisites ──────────────────────────────────
+// Tier 1: Easy (Arrays, HashMaps, Two Pointers)
+// Tier 2: Medium (Stack, Linked List, Sliding Window, Binary Search)
+// Tier 3: Hard (Trees, Tries, Backtracking, Graphs)
+// Tier 4: Expert (Dynamic Programming, Greedy, Union Find)
 const SOURCES = [
+  // ── Tier 1: Easy ──
   {
-    name: 'coding-interview-university',
-    url: 'https://raw.githubusercontent.com/jwasham/coding-interview-university/main/README.md',
+    repo: 'jwasham/coding-interview-university',
+    path: 'README.md',
     domain: 'algorithms',
-    tags: ['interview', 'cs-fundamentals', 'data-structures', 'algorithms'],
+    difficulty: 'easy',
+    tier: 1,
+    tags: ['arrays', 'hashmap', 'two-pointers', 'strings'],
+    prerequisites: [],
   },
   {
-    name: 'tech-interview-handbook',
-    url: 'https://raw.githubusercontent.com/yangshun/tech-interview-handbook/main/contents/coding-interview-techniques.md',
+    repo: 'trekhleb/javascript-algorithms',
+    path: 'README.md',
     domain: 'algorithms',
-    tags: ['interview', 'techniques', 'coding', 'problem-solving'],
+    difficulty: 'easy',
+    tier: 1,
+    tags: ['arrays', 'hashmap', 'strings', 'sorting'],
+    prerequisites: [],
   },
   {
-    name: 'grokking-coding-interview',
-    url: 'https://raw.githubusercontent.com/dipjul/Grokking-the-Coding-Interview-Patterns-for-Coding-Questions/main/README.md',
+    repo: 'krahets/hello-algo',
+    path: 'README.md',
     domain: 'algorithms',
-    tags: ['patterns', 'sliding-window', 'two-pointers', 'dp', 'greedy'],
+    difficulty: 'easy',
+    tier: 1,
+    tags: ['arrays', 'hashmap', 'binary-search'],
+    prerequisites: [],
+  },
+
+  // ── Tier 2: Medium ──
+  {
+    repo: 'yangshun/tech-interview-handbook',
+    path: 'contents/coding-interview-techniques.md',
+    domain: 'algorithms',
+    difficulty: 'medium',
+    tier: 2,
+    tags: ['stack', 'queue', 'linked-list', 'sliding-window', 'binary-search'],
+    prerequisites: ['arrays', 'hashmap'],
   },
   {
-    name: 'awesome-interview-questions',
-    url: 'https://raw.githubusercontent.com/DopplerHQ/awesome-interview-questions/main/README.md',
+    repo: 'Gaurav14cs17/DSA',
+    path: 'README.md',
     domain: 'algorithms',
-    tags: ['interview', 'questions', 'system-design', 'behavioral'],
+    difficulty: 'medium',
+    tier: 2,
+    tags: ['stack', 'queue', 'linked-list', 'trees'],
+    prerequisites: ['arrays', 'hashmap'],
   },
   {
-    name: 'coding-interview-university-algorithms',
-    url: 'https://raw.githubusercontent.com/jwasham/coding-interview-university/main/contents/algorithms.md',
+    repo: 'amejiarosario/dsa.js-data-structures-and-algorithms-javascript',
+    path: 'README.md',
     domain: 'algorithms',
-    tags: ['algorithms', 'sorting', 'searching', 'graph', 'dynamic-programming'],
+    difficulty: 'medium',
+    tier: 2,
+    tags: ['stack', 'queue', 'linked-list', 'sorting'],
+    prerequisites: ['arrays', 'hashmap'],
+  },
+
+  // ── Tier 3: Hard ──
+  {
+    repo: 'dipjul/Grokking-the-Coding-Interview-Patterns-for-Coding-Questions',
+    path: 'README.md',
+    domain: 'algorithms',
+    difficulty: 'hard',
+    tier: 3,
+    tags: ['trees', 'tries', 'backtracking', 'graphs'],
+    prerequisites: ['stack', 'queue', 'linked-list'],
+  },
+  {
+    repo: 'labuladong/fucking-algorithm',
+    path: 'README.md',
+    domain: 'algorithms',
+    difficulty: 'hard',
+    tier: 3,
+    tags: ['trees', 'graphs', 'backtracking', 'dp-intro'],
+    prerequisites: ['stack', 'queue', 'linked-list'],
+  },
+  {
+    repo: 'ashishps1/awesome-leetcode-resources',
+    path: 'README.md',
+    domain: 'algorithms',
+    difficulty: 'hard',
+    tier: 3,
+    tags: ['trees', 'graphs', 'dp', 'backtracking'],
+    prerequisites: ['stack', 'queue', 'linked-list'],
+  },
+
+  // ── Tier 4: Expert ──
+  {
+    repo: 'DopplerHQ/awesome-interview-questions',
+    path: 'README.md',
+    domain: 'algorithms',
+    difficulty: 'expert',
+    tier: 4,
+    tags: ['dp', 'greedy', 'union-find', 'advanced-graphs'],
+    prerequisites: ['trees', 'graphs', 'backtracking'],
+  },
+
+  // ── Career ──
+  {
+    repo: 'SimplifyJobs/Summer2026-Internships',
+    path: 'README.md',
+    domain: 'career',
+    difficulty: 'easy',
+    tier: 0,
+    tags: ['internships', 'jobs', 'career', 'summer-2026'],
+    prerequisites: [],
   },
 ];
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function chunkText(text, maxChunkSize = 1500) {
-  // Split by ## headings first
-  const sections = text.split(/\n(?=#+ )/).filter(s => s.trim().length > 50);
-  const chunks = [];
+async function fetchFromGitHub(repo, filePath) {
+  const apiUrl = `https://api.github.com/repos/${repo}/contents/${filePath}`;
+  const res = await fetch(apiUrl, {
+    headers: {
+      'User-Agent': 'my-ai-brain/1.0',
+      'Accept': 'application/vnd.github.v3+json',
+    },
+    signal: AbortSignal.timeout(15000),
+  });
 
-  for (const section of sections) {
-    if (section.length <= maxChunkSize) {
-      chunks.push(section.trim());
-    } else {
-      // Split long sections by paragraphs
-      const paragraphs = section.split(/\n\n+/).filter(p => p.trim().length > 20);
-      let current = '';
-      for (const p of paragraphs) {
-        if ((current + p).length > maxChunkSize) {
-          if (current) chunks.push(current.trim());
-          current = p;
-        } else {
-          current += '\n\n' + p;
-        }
-      }
-      if (current) chunks.push(current.trim());
-    }
+  if (!res.ok) {
+    // Fallback: thử raw URL
+    const rawUrl = `https://raw.githubusercontent.com/${repo}/main/${filePath}`;
+    const rawRes = await fetch(rawUrl, {
+      headers: { 'User-Agent': 'my-ai-brain/1.0' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!rawRes.ok) throw new Error(`Fetch failed: ${res.status} / ${rawRes.status}`);
+    return rawRes.text();
   }
 
-  return chunks;
-}
-
-async function fetchContent(url) {
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'my-ai-brain/1.0' },
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${url}`);
-  return res.text();
+  const data = await res.json();
+  if (!data.content) throw new Error('No content in response');
+  return Buffer.from(data.content, 'base64').toString('utf8');
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const db = getDb();
+  const db = new DatabaseSync('./vectors.db');
 
-  // Ensure domain column exists in vectors table
+  // Ensure domain column exists
   try {
-    await db.exec("ALTER TABLE vectors ADD COLUMN domain TEXT DEFAULT 'general'");
+    db.exec("ALTER TABLE vectors ADD COLUMN domain TEXT DEFAULT 'general'");
+  } catch { /* already exists */ }
+  try {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_vectors_domain ON vectors(domain)");
   } catch { /* already exists */ }
 
-  let totalChunks = 0;
+  // Tạo bảng algo_daily nếu chưa có
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS algo_daily (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      created_at TEXT
+    )
+  `).run();
+
   let totalIngested = 0;
 
   for (const source of SOURCES) {
-    console.log(`\n[Ingest] ${source.name}...`);
+    console.log(`\n[Ingest] ${source.repo}/${source.path} (${source.difficulty})...`);
 
     try {
-      const content = await fetchContent(source.url);
-      const chunks = chunkText(content);
-      totalChunks += chunks.length;
+      const content = await fetchFromGitHub(source.repo, source.path);
+      const chunks = chunkText(content, 1500);
 
       console.log(`  Fetched ${content.length} chars → ${chunks.length} chunks`);
 
@@ -109,43 +192,47 @@ async function main() {
         const chunk = chunks[i];
         if (chunk.length < 50) continue;
 
-        // Generate embedding
         let embedding;
         try {
           embedding = await embedText(chunk.slice(0, 1000));
-        } catch (e) {
-          console.warn(`  Skip chunk ${i}: embed failed (${e.message})`);
+        } catch {
           continue;
         }
-
         if (!embedding || embedding.length === 0) continue;
 
-        // Insert into vectors table
-        const docId = `interview::${source.name}::${i}`;
+        const docId = `interview::${source.repo}::${i}`;
         const metadata = JSON.stringify({
           domain: source.domain,
+          difficulty: source.difficulty,
+          tier: source.tier,
           tags: source.tags,
-          source: source.url,
-          source_name: source.name,
+          prerequisites: source.prerequisites,
+          source: `https://github.com/${source.repo}`,
+          source_path: source.path,
           chunk_index: i,
           indexed_at: new Date().toISOString(),
         });
 
         try {
-          // Check if already exists
-          const existing = db.prepare('SELECT id FROM vectors WHERE id = ?').get(docId);
-          if (existing) {
-            // Update
-            db.prepare('UPDATE vectors SET chunk_text = ?, embedding = ?, metadata = ?, domain = ? WHERE id = ?')
-              .run(chunk, Buffer.from(new Float32Array(embedding).buffer), metadata, source.domain, docId);
-          } else {
-            // Insert
-            db.prepare('INSERT INTO vectors (id, doc_id, chunk_index, chunk_text, embedding, domain, metadata, url, project, category, added_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-              .run(docId, `interview::${source.name}`, i, chunk, Buffer.from(new Float32Array(embedding).buffer), source.domain, metadata, source.url, source.name, 'Algorithms', new Date().toISOString(), new Date().toISOString());
-          }
+          db.prepare(
+            'INSERT OR REPLACE INTO vectors (id, doc_id, chunk_index, chunk_text, embedding, domain, metadata, url, project, category, added_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).run(
+            docId,
+            `interview::${source.repo}`,
+            i,
+            chunk,
+            Buffer.from(new Float32Array(embedding).buffer),
+            source.domain,
+            metadata,
+            `https://github.com/${source.repo}`,
+            source.repo,
+            'Algorithms',
+            new Date().toISOString(),
+            new Date().toISOString()
+          );
           totalIngested++;
-        } catch (e) {
-          console.warn(`  Insert failed: ${e.message}`);
+        } catch {
+          // skip duplicates
         }
       }
 
@@ -157,20 +244,15 @@ async function main() {
 
   // Verify
   const totalVectors = db.prepare('SELECT COUNT(*) as n FROM vectors').get().n;
-  const interviewVectors = db.prepare("SELECT COUNT(*) as n FROM vectors WHERE domain = 'algorithms'").get().n;
+  const dist = db.prepare('SELECT domain, difficulty, COUNT(*) as cnt FROM vectors GROUP BY domain, difficulty ORDER BY domain, difficulty').all();
 
   console.log(`\n=== Summary ===`);
-  console.log(`Total chunks processed: ${totalChunks}`);
   console.log(`Total ingested: ${totalIngested}`);
   console.log(`Total vectors in DB: ${totalVectors}`);
-  console.log(`Interview vectors: ${interviewVectors}`);
+  console.log('Distribution:');
+  for (const r of dist) console.log(`  ${r.domain}/${r.difficulty}: ${r.cnt}`);
 
-  // Domain distribution
-  const dist = db.prepare('SELECT domain, COUNT(*) as cnt FROM vectors GROUP BY domain ORDER BY cnt DESC').all();
-  console.log('\nDomain distribution:');
-  for (const r of dist) console.log(`  ${r.domain}: ${r.cnt}`);
-
-  await db.close();
+  db.close();
   console.log('\n[Ingest] Done!');
 }
 

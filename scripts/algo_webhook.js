@@ -63,15 +63,45 @@ async function sendWebhook(payload) {
   }
 }
 
-// ── Daily: Random bài tập ───────────────────────────────────────────────────
+// ── Daily: Adaptive bài tập theo tiến trình ────────────────────────────────
 
 async function sendDailyProblem() {
   const db = getDb();
 
-  // Lấy tất cả interview vectors
-  const rows = db.prepare(
-    "SELECT id, chunk_text, metadata FROM vectors WHERE domain = 'algorithms' AND id LIKE 'interview::%'"
-  ).all();
+  // 1. Lấy user stats (tier hiện tại)
+  const statsRow = db.prepare("SELECT value FROM algo_daily WHERE key = 'user_stats'").get();
+  let stats = { tier: 1, easySolved: 0, mediumSolved: 0, hardSolved: 0, expertSolved: 0 };
+  if (statsRow) {
+    try { stats = JSON.parse(statsRow.value); } catch { /* use defaults */ }
+  }
+
+  // 2. Xác định tier tiếp theo dựa trên số bài đã giải
+  let targetTier = stats.tier || 1;
+  if (stats.easySolved >= 30 && targetTier === 1) targetTier = 2;
+  if (stats.mediumSolved >= 50 && targetTier === 2) targetTier = 3;
+  if (stats.hardSolved >= 30 && targetTier === 3) targetTier = 4;
+
+  // 3. Lấy bài từ tier tương ứng (80% tier hiện tại, 20% tier trước để ôn lại)
+  let rows;
+  if (Math.random() < 0.8) {
+    // 80%: Bài từ tier hiện tại
+    rows = db.prepare(
+      "SELECT id, chunk_text, metadata FROM vectors WHERE domain = 'algorithms' AND id LIKE 'interview::%' AND json_extract(metadata, '$.tier') = ?"
+    ).all(targetTier);
+  } else {
+    // 20%: Bài từ tier trước để ôn lại
+    const reviewTier = Math.max(1, targetTier - 1);
+    rows = db.prepare(
+      "SELECT id, chunk_text, metadata FROM vectors WHERE domain = 'algorithms' AND id LIKE 'interview::%' AND json_extract(metadata, '$.tier') = ?"
+    ).all(reviewTier);
+  }
+
+  // Nếu không có bài ở tier đó, fallback sang tier 1
+  if (rows.length === 0) {
+    rows = db.prepare(
+      "SELECT id, chunk_text, metadata FROM vectors WHERE domain = 'algorithms' AND id LIKE 'interview::%' AND json_extract(metadata, '$.tier') = 1"
+    ).all();
+  }
 
   if (rows.length === 0) {
     console.log('[AlgoBot] No interview data found. Run ingest_interview_resources.js first.');
@@ -79,7 +109,7 @@ async function sendDailyProblem() {
     return;
   }
 
-  // Random 1 bài
+  // Random 1 bài từ tier
   const randomRow = rows[Math.floor(Math.random() * rows.length)];
   const metadata = JSON.parse(randomRow.metadata || '{}');
   const text = randomRow.chunk_text;
@@ -105,29 +135,47 @@ async function sendDailyProblem() {
 
   const today = new Date().toISOString().slice(0, 10);
   const answerText = lines.slice(6).join('\n').slice(0, 1000);
+  const difficulty = metadata.difficulty || 'easy';
 
   db.prepare('INSERT OR REPLACE INTO algo_daily VALUES (?, ?, ?)').run(
     'current_problem',
-    JSON.stringify({ title, problemText, answerText, hint, tags, date: today }),
+    JSON.stringify({ title, problemText, answerText, hint, tags, difficulty, tier: targetTier, date: today }),
+    new Date().toISOString()
+  );
+
+  // Lưu stats
+  db.prepare('INSERT OR REPLACE INTO algo_daily VALUES (?, ?, ?)').run(
+    'user_stats',
+    JSON.stringify({ ...stats, tier: targetTier }),
     new Date().toISOString()
   );
 
   db.close();
 
   // Gửi webhook
+  const tierEmoji = ['', '🟢', '🟡', '🟠', '🔴'][targetTier] || '🟢';
+  const difficultyLabel = ['', 'Easy', 'Medium', 'Hard', 'Expert'][targetTier] || 'Easy';
+
   const payload = {
     embeds: [{
-      title: `🧠 Daily Algorithm — ${title}`,
+      title: `${tierEmoji} Daily Algorithm — ${title}`,
       description: problemText,
-      color: 0x6366f1,
+      color: [0, 0x22c55e, 0xf59e0b, 0xff6600, 0xff0000][targetTier] || 0x6366f1,
       fields: [
+        {
+          name: '📊 Difficulty',
+          value: `${difficultyLabel} (Tier ${targetTier})`,
+          inline: true,
+        },
         {
           name: '💡 Hint (click to reveal)',
           value: `||${hint}||`,
+          inline: false,
         },
         {
           name: '🏷️ Tags',
           value: tags.join(', ') || 'general',
+          inline: true,
         },
       ],
       footer: { text: 'Gõ !done khi đã giải xong. Đáp án sẽ gửi lúc 23:59 nếu chưa giải.' },
@@ -136,7 +184,7 @@ async function sendDailyProblem() {
   };
 
   await sendWebhook(payload);
-  console.log(`[AlgoBot] Sent daily problem: ${title}`);
+  console.log(`[AlgoBot] Sent daily problem: ${title} (${difficultyLabel}, Tier ${targetTier})`);
 }
 
 // ── Answer: Gửi đáp án 23:59 ────────────────────────────────────────────────
