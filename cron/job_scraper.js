@@ -9,11 +9,13 @@
  */
 
 import { getLogger } from '../lib/logger.js';
+import { DatabaseSync } from 'node:sqlite';
 
 const logger = getLogger('JobScraper');
 
 const REPO = 'SimplifyJobs/Summer2026-Internships';
 const GITHUB_API = `https://api.github.com/repos/${REPO}/contents/README.md`;
+const DB_PATH = './data.db';
 
 // ── Keywords để filter jobs phù hợp ──
 const MATCH_KEYWORDS = [
@@ -102,11 +104,10 @@ export async function runJobScraper() {
     logger.info(`[JobScraper] ${matchingJobs.length} matching jobs`);
 
     // 4. So sánh với version cũ (từ SQLite)
-    const { getDb } = await import('../lib/sqlite_adapter.js');
-    const db = getDb();
+    const db = new DatabaseSync(DB_PATH);
 
     // Tạo job_tracker table nếu chưa có
-    await db.exec(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS job_tracker (
         key TEXT PRIMARY KEY,
         value TEXT
@@ -116,11 +117,12 @@ export async function runJobScraper() {
     const prev = db.prepare("SELECT value FROM job_tracker WHERE key = 'last_readme'").get();
     const prevContent = prev?.value || '';
 
-    await db.close();
+    db.close();
 
     // 5. Nếu không có gì mới → return
     if (content === prevContent) {
       logger.info('[JobScraper] No new jobs (README unchanged)');
+      db.close();
       return { newJobs: 0, totalJobs: allJobs.length, matchingJobs: matchingJobs.length };
     }
 
@@ -130,9 +132,10 @@ export async function runJobScraper() {
     const newJobsText = newLines.filter(line => line.includes('|') && line.includes('http'));
 
     // 7. Lưu version mới
-    const db2 = getDb();
-    await db2.prepare("INSERT OR REPLACE INTO job_tracker VALUES ('last_readme', ?)").run(content);
-    await db2.close();
+    const db2 = new DatabaseSync(DB_PATH);
+    db2.exec("CREATE TABLE IF NOT EXISTS job_tracker (key TEXT PRIMARY KEY, value TEXT)");
+    db2.prepare("INSERT OR REPLACE INTO job_tracker VALUES ('last_readme', ?)").run(content);
+    db2.close();
 
     // 8. Gửi notification nếu có jobs mới phù hợp
     if (newJobsText.length > 0 && matchingJobs.length > 0) {
