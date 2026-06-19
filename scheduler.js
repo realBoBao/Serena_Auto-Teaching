@@ -594,6 +594,35 @@ if (!IS_CLOUD_RUN) {
   rssTask.start();
   jobTask.start();
 
+  // ── Algo Bot: Daily 8AM — Gửi bài thuật toán ──
+  const ALGO_CRON = '0 8 * * *';
+  const algoTask = cron.schedule(ALGO_CRON, async () => {
+    logger.info('[Scheduler] Algo Bot: Sending daily problem...');
+    try {
+      const { execSync } = await import('child_process');
+      execSync('node scripts/algo_webhook.js daily', { encoding: 'utf8', timeout: 30000 });
+      logger.info('[Scheduler] Algo Bot: Daily problem sent');
+    } catch (err) {
+      logger.error('[Scheduler] Algo Bot failed:', err?.message || err);
+    }
+  }, { timezone: 'America/Los_Angeles' });
+
+  // ── Algo Bot: 23:59 — Gửi đáp án nếu chưa giải ──
+  const ALGO_ANSWER_CRON = '59 23 * * *';
+  const algoAnswerTask = cron.schedule(ALGO_ANSWER_CRON, async () => {
+    logger.info('[Scheduler] Algo Bot: Checking if answer needed...');
+    try {
+      const { execSync } = await import('child_process');
+      execSync('node scripts/algo_webhook.js answer', { encoding: 'utf8', timeout: 30000 });
+      logger.info('[Scheduler] Algo Bot: Answer sent (or already solved)');
+    } catch (err) {
+      logger.error('[Scheduler] Algo Bot answer failed:', err?.message || err);
+    }
+  }, { timezone: 'America/Los_Angeles' });
+
+  algoTask.start();
+  algoAnswerTask.start();
+
   logger.info('[Scheduler] All node-cron jobs started');
 } // end if (!IS_CLOUD_RUN)
 
@@ -605,6 +634,10 @@ async function gracefulShutdown(signal) {
   evoTask?.stop();
   graphTask?.stop();
   suggestionTask?.stop();
+  rssTask?.stop();
+  jobTask?.stop();
+  algoTask?.stop();
+  algoAnswerTask?.stop();
 
   process.exit(0);
 }
