@@ -458,6 +458,8 @@ client.on(Events.MessageCreate, async (message) => {
     } catch { /* idempotency optional */ }
 
     // ── User-level query dedup: block cùng query từ cùng user trong 1 giờ ──
+    // Bypass cho fast commands (help, ping, status) — luôn cho phép
+    if (!isFastCommand) {
     try {
       const queryHash = require('crypto').createHash('md5').update(content.toLowerCase().trim()).digest('hex');
       const userKey = message.author.id + ':' + queryHash;
@@ -475,9 +477,10 @@ client.on(Events.MessageCreate, async (message) => {
         }
       }
     } catch { /* dedup optional */ }
+    } // end isFastCommand bypass
 
-    // Token Bucket rate limit
-    if (!checkTokenBucket(message.author.id)) {
+    // Token Bucket rate limit — bypass cho fast commands (help, ping, status)
+    if (!isFastCommand && !checkTokenBucket(message.author.id)) {
       return; // Silent drop — bucket rỗng
     }
     cleanupTokenBuckets();

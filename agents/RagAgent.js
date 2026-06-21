@@ -111,25 +111,14 @@ async function getRagVerifier() {
 async function applyConfidenceScoring({ question, answer, results, jaccardSim, skipSelfCheck }) {
   try {
     const scorer = await getConfidenceScorer();
-    const confidence = await scorer.ConfidenceScorer.compute({
+    // Fix: scoreConfidence is a direct export, not ConfidenceScorer.compute
+    const confidence = await scorer.scoreConfidence({
       question,
       answer,
       searchResults: results || [],
       jaccardSim: jaccardSim ?? null,
       skipSelfCheck: skipSelfCheck ?? false,
     });
-
-    // Track metrics
-    try {
-      const { ragConfidenceHistogram, ragLowConfidenceCounter, ragSelfCheckCounter } = await import('../lib/metrics.js');
-      ragConfidenceHistogram.observe({ level: confidence.level }, confidence.score);
-      if (['low', 'very_low'].includes(confidence.level)) {
-        ragLowConfidenceCounter.inc({ level: confidence.level });
-      }
-      if (confidence.usedSelfCheck) {
-        ragSelfCheckCounter.inc({ trigger: confidence.signals.selfCheck < 0.5 ? 'signal_conflict' : 'uncertain_zone' });
-      }
-    } catch { /* metrics optional */ }
 
     // Handle very_low confidence — refuse to answer
     if (confidence.level === 'very_low') {
@@ -146,7 +135,7 @@ async function applyConfidenceScoring({ question, answer, results, jaccardSim, s
     }
 
     // Format Discord suffix for medium/low confidence
-    const suffix = scorer.ConfidenceScorer.formatDiscordSuffix(confidence);
+    const suffix = scorer.formatConfidenceSuffix ? scorer.formatConfidenceSuffix(confidence) : '';
     let finalAnswer = suffix ? answer + suffix : answer;
 
     // ── Datalog Output Grounding (Tier 3) ─────────────────────────────────
