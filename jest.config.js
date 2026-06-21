@@ -15,4 +15,6 @@ export default {
   // Fix ESM module caching: sqlite_adapter.js uses top-level await
   // Running workers=1 prevents parallel module loading conflicts
   ...(process.env.CI ? { maxWorkers: 1 } : {}),
+  // Ignore artifacts and backups to avoid Haste module naming collisions
+  modulePathIgnorePatterns: ['<rootDir>/artifacts/', '<rootDir>/backups/'],
 };
