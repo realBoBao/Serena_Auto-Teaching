@@ -1,4 +1,4 @@
-﻿import { spawn } from 'child_process';
+import { spawn } from 'child_process';
 import cron from 'node-cron';
 import { addJob, JobType, QueueName } from './lib/task_queue.js';
 import { getLogger } from './lib/logger.js';
@@ -27,6 +27,9 @@ if (IS_CLOUD_RUN) {
 } else {
   logger.info('[Scheduler] Running on local/server — using node-cron with PDT timezone');
 }
+
+// ── Global cron task references (for gracefulShutdown) ──
+let task, memoryTask, backupTask, evoTask, graphTask, suggestionTask, rssTask, jobTask, algoTask, algoAnswerTask;
 
 // ── Memory Consolidation: 2:00 AM mỗi ngày ──
 // Tóm tắt lịch sử chat Discord hôm qua → nhúng vector → lưu vào long-term memory
@@ -429,9 +432,6 @@ cleanupStaleTempFiles('.').catch(() => {});
 
 // ── Only schedule cron jobs when NOT on Cloud Run ──
 // On Cloud Run, use Google Cloud Scheduler → HTTP POST → /scheduler/:job
-// All cron tasks declared at module scope for gracefulShutdown access
-let task, memoryTask, backupTask, evoTask, graphTask, suggestionTask, rssTask, jobTask, algoTask, algoAnswerTask;
-
 if (!IS_CLOUD_RUN) {
   logger.info('[Scheduler] Registering node-cron jobs (local/server mode)');
 
@@ -598,36 +598,12 @@ if (!IS_CLOUD_RUN) {
   graphTask.start();
   suggestionTask.start();
   rssTask.start();
-  jobTask.start();
 
-  // ── Algo Bot: Daily 8AM — Gửi bài thuật toán ──
-  const ALGO_CRON = '0 8 * * *';
-  algoTask = cron.schedule(ALGO_CRON, async () => {
-    logger.info('[Scheduler] Algo Bot: Sending daily problem...');
-    try {
-      const { execSync } = await import('child_process');
-      execSync('node scripts/algo_webhook.js daily', { encoding: 'utf8', timeout: 30000 });
-      logger.info('[Scheduler] Algo Bot: Daily problem sent');
-    } catch (err) {
-      logger.error('[Scheduler] Algo Bot failed:', err?.message || err);
-    }
-  }, { timezone: 'America/Los_Angeles' });
-
-  // ── Algo Bot: 23:59 — Gửi đáp án nếu chưa giải ──
-  const ALGO_ANSWER_CRON = '59 23 * * *';
-  algoAnswerTask = cron.schedule(ALGO_ANSWER_CRON, async () => {
-    logger.info('[Scheduler] Algo Bot: Checking if answer needed...');
-    try {
-      const { execSync } = await import('child_process');
-      execSync('node scripts/algo_webhook.js answer', { encoding: 'utf8', timeout: 30000 });
-      logger.info('[Scheduler] Algo Bot: Answer sent (or already solved)');
-    } catch (err) {
-      logger.error('[Scheduler] Algo Bot answer failed:', err?.message || err);
-    }
-  }, { timezone: 'America/Los_Angeles' });
-
-  algoTask.start();
-  algoAnswerTask.start();
+  // Job Scraper, Algo Bot, Algo Answer: Disabled on VPS
+  // Handled by GitHub Actions cron instead
+  // jobTask.start();
+  // algoTask.start();
+  // algoAnswerTask.start();
 
   // ── Step 5: Morning Health Check — 8:00 AM PDT ──
   const healthTask = cron.schedule('0 8 * * *', async () => {
