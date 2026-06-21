@@ -4,6 +4,8 @@ export default {
   transform: {},
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    // Force sqlite_adapter to always resolve to the same module instance
+    '^(.*/sqlite_adapter\\.js)$': '<rootDir>/lib/sqlite_adapter.js',
   },
   testMatch: ['**/tests/**/*.test.js'],
   collectCoverageFrom: [

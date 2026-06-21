@@ -22,6 +22,11 @@ const RUN_ON_START = process.env.RUN_ON_START !== 'false';
 const FORCE_RUN = process.env.FORCE_PIPELINE === 'true';
 const TOPIC_OVERRIDE = process.env.PIPELINE_TOPIC || '';
 
+// ── Global cron task references (declared at module scope for gracefulShutdown) ──
+let task = null, memoryTask = null, backupTask = null, evoTask = null;
+let graphTask = null, suggestionTask = null, rssTask = null, jobTask = null;
+let algoTask = null, algoAnswerTask = null;
+
 if (IS_CLOUD_RUN) {
   logger.info('[Scheduler] Running on Cloud Run — node-cron disabled, using Cloud Scheduler');
 } else {
