@@ -1339,22 +1339,48 @@ export async function answerQuestion(query, options = {}) {
     }
 
     if (localResults.length) {
-      const context = formatContext(localResults) + graphContext;
+      let context;
+      try {
+        context = formatContext(localResults) + graphContext;
+      } catch (ctxErr) {
+        logger.error('[answerQuestion] formatContext failed:', ctxErr?.message);
+        context = localResults.map(r => r.chunk_text).join('\n').slice(0, 3000);
+      }
 
-      const answer = await synthesizeAnswer(cleanQuery, context, 'local');
-      logger.info(`[answerQuestion] synthesizeAnswer returned: ${answer ? answer.slice(0, 100) : 'NULL'}`);
+      let answer;
+      try {
+        answer = await synthesizeAnswer(cleanQuery, context, 'local');
+        logger.info(`[answerQuestion] synthesizeAnswer returned: ${answer ? answer.slice(0, 100) : 'NULL'}`);
+      } catch (synthErr) {
+        logger.error('[answerQuestion] synthesizeAnswer threw:', synthErr?.message, '\nSTACK:', synthErr?.stack?.split('\n').slice(0, 5).join('\n'));
+        answer = null;
+      }
 
       // Skip self-reflect gate for now — just use the answer directly
       if (answer && answer.trim()) {
         // Skip confidence scoring for now — just return the answer
-        return {
-          answer,
-          source: 'local',
-          results: localResults,
-          predictedTopic,
-          sourcesFormatted: formatSourcesWithScore(localResults, 'local'),
-          confidence: { score: 0.7, level: 'medium' },
-        };
+        try {
+          const sourcesFormatted = formatSourcesWithScore(localResults, 'local');
+          return {
+            answer,
+            source: 'local',
+            results: localResults,
+            predictedTopic,
+            sourcesFormatted,
+            confidence: { score: 0.7, level: 'medium' },
+          };
+        } catch (retErr) {
+          logger.error('[answerQuestion] RETURN BLOCK ERROR:', retErr?.message || String(retErr), retErr?.stack?.split('\n').slice(0, 3).join('\n'));
+          // Fallback: return without sourcesFormatted
+          return {
+            answer,
+            source: 'local',
+            results: localResults,
+            predictedTopic,
+            sourcesFormatted: localResults.slice(0, 3).map((r, i) => `${i+1}. ${r.doc_id || r.url || 'N/A'}`).join('\n'),
+            confidence: { score: 0.7, level: 'medium' },
+          };
+        }
       }
 
       // ── Query Expansion with Promise.any (Fast-Exit) ──
@@ -1403,11 +1429,25 @@ export async function answerQuestion(query, options = {}) {
 
       const fallbackSnippet = formatRetrievedSnippets(localResults);
       const safe = gate.safeAnswer || `Toi khong dam bao cau tra loi nay hoan toan dung vi du lieu hien co chua du. Duoi day la cac mảnh thong tin de ban doi chieu:\n\n${fallbackSnippet}`;
-      const scored = await applyConfidenceScoring({ question: cleanQuery, answer: safe, results: localResults });
-      return { ...scored, source: 'local', results: localResults, predictedTopic, sourcesFormatted: formatSourcesWithScore(localResults, 'local') };
+      let scored;
+      try {
+        scored = await applyConfidenceScoring({ question: cleanQuery, answer: safe, results: localResults });
+      } catch (scoreErr) {
+        logger.warn('[answerQuestion] applyConfidenceScoring failed, using defaults:', scoreErr?.message);
+        scored = { answer: safe, confidence: { score: 0.3, level: 'low' } };
+      }
+      let sourcesFormatted;
+      try {
+        sourcesFormatted = formatSourcesWithScore(localResults, 'local');
+      } catch (fmtErr) {
+        logger.warn('[answerQuestion] formatSourcesWithScore failed:', fmtErr?.message);
+        sourcesFormatted = localResults.slice(0, 3).map((r, i) => `${i+1}. ${r.doc_id || r.url || 'N/A'}`).join('\n');
+      }
+      return { ...scored, source: 'local', results: localResults, predictedTopic, sourcesFormatted };
     }
   } catch (err) {
-    logger.warn('Local synthesize/retrieval failed:', err?.message || String(err));
+    logger.warn('[answerQuestion] CATCH BLOCK ERROR:', err?.message || String(err));
+    if (err?.stack) logger.warn('[answerQuestion] STACK:', err.stack.split('\n').slice(0, 5).join('\n'));
     lastError = err;
   }
 
