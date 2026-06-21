@@ -52,9 +52,9 @@ jobs:
             node --version
             npm --version
 
-            # Install dependencies
+            # Install dependencies (Tier 2: no log masking)
             echo "📦 Installing dependencies..."
-            npm install --legacy-peer-deps --omit=dev --no-audit --no-fund 2>&1 | tail -10
+            npm install --legacy-peer-deps --omit=dev --no-audit --no-fund
             echo "📦 Installed $(ls node_modules | wc -l) packages"
 
             # Rebuild native modules for current Node version (sqlite3 needs C++ compiler)
@@ -63,11 +63,11 @@ jobs:
               echo "📦 Installing build-essential..."
               sudo apt-get update -qq && sudo apt-get install -y -qq build-essential python3
             fi
-            npm rebuild 2>&1 | tail -5 || echo "⚠️ npm rebuild failed"
+            npm rebuild || echo "⚠️ npm rebuild failed"
 
-            # Restart PM2
-            echo "🔄 Restarting PM2..."
-            pm2 restart AI_Brain --update-env 2>/dev/null || pm2 start ecosystem.config.cjs
+            # Reload PM2 (Tier 1: reload ALL processes, not just AI_Brain)
+            echo "🔄 Reloading PM2 Ecosystem..."
+            pm2 reload ecosystem.config.cjs --update-env 2>/dev/null || pm2 start ecosystem.config.cjs
             pm2 save
 
             echo "✅ Deployment complete at $(date)"
