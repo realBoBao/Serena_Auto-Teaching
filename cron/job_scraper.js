@@ -98,7 +98,14 @@ async function main() {
     fetchWeWorkRemotely(10),
   ]);
 
-  const allJobs = [...simplify, ...remoteok, ...wework];
+  // Dedup by URL
+  const seen = new Set();
+  const allJobs = [...simplify, ...remoteok, ...wework].filter(j => {
+    const key = j.link || j.title;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   if (allJobs.length === 0) {
     console.log('[JobScraper] No jobs fetched.');
