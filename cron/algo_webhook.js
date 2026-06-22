@@ -12,11 +12,25 @@ const DB_PATH = './vectors.db';
 const ALGO_WEBHOOK_URL = process.env.ALGO_WEBHOOK_URL || '';
 const CATCHUP_FILE = path.resolve('./.algo_catchup.json');
 
+// Get date in PDT (UTC-7) — algo should send in the morning PDT
+function getPdtDate() {
+  const now = new Date();
+  const pdt = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  return `${pdt.getFullYear()}-${String(pdt.getMonth() + 1).padStart(2, '0')}-${String(pdt.getDate()).padStart(2, '0')}`;
+}
+
+// Check if current time is within sending window (6AM-12PM PDT)
+function isSendingWindow() {
+  const now = new Date();
+  const pdt = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  const hour = pdt.getHours();
+  return hour >= 6 && hour < 12; // 6AM-12PM PDT
+}
+
 async function wasSentToday() {
   try {
     const data = JSON.parse(await fs.readFile(CATCHUP_FILE, 'utf8'));
-    const today = new Date().toISOString().slice(0, 10);
-    return data[today] === true;
+    return data[getPdtDate()] === true;
   } catch { return false; }
 }
 
@@ -24,8 +38,7 @@ async function markSent() {
   try {
     let data = {};
     try { data = JSON.parse(await fs.readFile(CATCHUP_FILE, 'utf8')); } catch {}
-    const today = new Date().toISOString().slice(0, 10);
-    data[today] = true;
+    data[getPdtDate()] = true;
     await fs.writeFile(CATCHUP_FILE, JSON.stringify(data, null, 2), 'utf8');
   } catch { /* ignore */ }
 }
@@ -195,6 +208,15 @@ async function sendDailyProblem() {
   // ── Catch-up: Skip if already sent today ──
   if (await wasSentToday()) {
     console.log('[AlgoBot] Already sent today — skipping (catch-up)');
+    return;
+  }
+
+  // ── Time window: Only send between 6AM-12PM PDT ──
+  if (!isSendingWindow()) {
+    const pdtDate = getPdtDate();
+    const now = new Date();
+    const pdt = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+    console.log(`[AlgoBot] Outside sending window (PDT: ${pdt.toLocaleTimeString()}). Skipping.`);
     return;
   }
 
