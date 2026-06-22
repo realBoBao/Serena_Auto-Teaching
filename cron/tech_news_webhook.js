@@ -74,10 +74,23 @@ async function saveTopicHistory(topic) {
   } catch { /* ignore */ }
 }
 
-async function pickRandomTopic() {
+async function pickSmartTopic() {
+  // ── 1. Thử dùng Markov Engine để predict topic user quan tâm ──
+  try {
+    const { getPredictedTopic, initializeMarkovFiles } = await import('../lib/markov_engine.js');
+    await initializeMarkovFiles();
+    const predicted = await getPredictedTopic();
+    if (predicted && TECH_TOPICS.includes(predicted)) {
+      console.log(`[TechNews] Markov predicted topic: "${predicted}"`);
+      return predicted;
+    }
+  } catch (err) {
+    console.debug('[TechNews] Markov prediction failed, using random fallback:', err.message);
+  }
+
+  // ── 2. Fallback: random từ pool, không trùng trong ngày ──
   const history = await loadTopicHistory();
   const available = TECH_TOPICS.filter(t => !history.includes(t));
-  // Nếu chạy hết → reset và random lại
   if (available.length === 0) {
     const today = new Date().toISOString().slice(0, 10);
     await fs.writeFile(TOPIC_HISTORY_FILE, JSON.stringify({ [today]: [] }, null, 2), 'utf8');
@@ -91,81 +104,37 @@ if (!TECH_WEBHOOK) {
   process.exit(1);
 }
 
-async function fetchHackerNews(query, limit = 10) {
-  try {
-    // Search theo topic thay vì fetch top stories chung
-    const res = await fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=${limit}`);
-    if (!res.ok) throw new Error(`HN API ${res.status}`);
-    const data = await res.json();
-    return (data.hits || []).map(hit => ({
-      title: hit.title || 'Untitled',
-      url: hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`,
-      score: (hit.points || 0) / 100,
-      type: 'hackernews',
-      category: 'Tech News',
-    }));
-  } catch (err) {
-    console.warn('[TechNews] HackerNews failed:', err.message);
-    return [];
-  }
-}
-
-async function fetchReddit(query, limit = 10) {
-  try {
-    // Search theo topic thay vì fetch hot chung
-    const res = await fetch(`https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=relevance&t=week&limit=${limit}`, {
-      headers: { 'User-Agent': 'Serena-Brain/1.0' },
-    });
-    if (!res.ok) throw new Error(`Reddit API ${res.status}`);
-    const data = await res.json();
-    return (data.data?.children || [])
-      .filter(c => c.data && !c.data.stickied)
-      .map(c => ({
-        title: c.data.title || 'Untitled',
-        url: `https://reddit.com${c.data.permalink || ''}`,
-        score: (c.data.score || 0) / 100,
-        type: 'reddit',
-        category: 'Tech News',
-      }));
-  } catch (err) {
-    console.warn('[TechNews] Reddit failed:', err.message);
-    return [];
-  }
-}
-
-async function fetchGitHub(query, limit = 10) {
-  try {
-    // Search theo topic thay vì fetch trending chung
-    const res = await fetch(`https://api.github.com/search/repositories?q=${encodeURIComponent(query)}+created:>2024-01-01&sort=stars&order=desc&per_page=${limit}`);
-    if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-    const data = await res.json();
-    return (data.items || []).slice(0, limit).map(r => ({
-      title: r.full_name || 'Untitled',
-      url: r.html_url || '',
-      score: (r.stargazers_count || 0) / 1000,
-      type: 'github',
-      category: 'Tech News',
-    }));
-  } catch (err) {
-    console.warn('[TechNews] GitHub failed:', err.message);
-    return [];
-  }
-}
+// ── Source Router handles all fetching with multi-backend fallback ──
 
 async function main() {
-  // Pick random topic from pool (no duplicate today)
-  const topic = process.argv[2] || await pickRandomTopic();
+  // Pick smart topic (Markov prediction → random fallback)
+  const topic = process.argv[2] || await pickSmartTopic();
   await saveTopicHistory(topic);
+
+  // Record interaction cho Markov Engine
+  try {
+    const { recordInteraction } = await import('../lib/markov_engine.js');
+    await recordInteraction(topic);
+  } catch { /* non-critical */ }
+
   console.log(`[TechNews] Fetching tech news for topic: "${topic}"`);
 
-  // Search theo topic thay vì fetch trending chung
-  const [hn, reddit, github] = await Promise.all([
-    fetchHackerNews(topic, 10),
-    fetchReddit(topic, 10),
-    fetchGitHub(topic, 10),
+  // ── Multi-source search với Source Router (multi-backend fallback) ──
+  const { searchWithFallback } = await import('../lib/source_router.js');
+  const [hn, reddit, github, arxiv] = await Promise.all([
+    searchWithFallback('hackernews', topic),
+    searchWithFallback('reddit', topic),
+    searchWithFallback('github', topic),
+    searchWithFallback('arxiv', topic),
   ]);
 
-  const allNews = [...hn, ...reddit, ...github];
+  // Normalize results to common format
+  const allNews = [
+    ...hn.map(n => ({ ...n, type: 'hackernews', score: n.score || 0.5 })),
+    ...reddit.map(n => ({ ...n, type: 'reddit', score: n.score || 0.5 })),
+    ...github.map(n => ({ ...n, type: 'github', score: n.score || 0.5 })),
+    ...arxiv.map(n => ({ ...n, type: 'arxiv', score: 0.75 })),
+  ];
 
   if (allNews.length === 0) {
     console.log('[TechNews] No news fetched.');
@@ -174,35 +143,64 @@ async function main() {
 
   allNews.sort((a, b) => b.score - a.score);
 
-  console.log(`[TechNews] Fetched ${allNews.length} news items for "${topic}"`);
-  
-  // Group by topic/category for better readability
-  const topicGroups = {};
-  for (const n of allNews) {
-    const topic = n.category || 'General';
-    if (!topicGroups[topic]) topicGroups[topic] = [];
-    topicGroups[topic].push(n);
+  // ── Fallback: Nếu không có news mới → lấy từ DB theo topic ──
+  if (allNews.length === 0) {
+    console.log('[TechNews] No new sources — fetching from DB cache...');
+    try {
+      const { search: vectorSearch } = await import('../lib/vector_store.js');
+      const { embedText } = await import('../lib/embeddings.js');
+      const emb = await embedText(topic);
+      const cached = await vectorSearch(emb, 10, 'academic');
+      if (cached.length > 0) {
+        const cachedNews = cached.map(c => ({
+          title: c.project || c.doc_id || 'Cached Source',
+          url: c.url || '',
+          type: 'cached',
+          score: 0.5,
+          source: 'cache',
+        }));
+        allNews.push(...cachedNews);
+        console.log(`[TechNews] Fallback: ${cachedNews.length} cached sources from DB`);
+      }
+    } catch (cacheErr) {
+      console.warn('[TechNews] DB cache fallback failed:', cacheErr.message);
+    }
   }
 
+  // ── F1 Quality Gate ──
+  let qualityNews = allNews;
+  try {
+    const { computeF1 } = await import('../lib/f1_evaluator.js');
+    qualityNews = allNews.filter(n => {
+      const f1 = computeF1(n.title, topic);
+      return f1.f1 >= 0.05;
+    });
+    if (qualityNews.length < allNews.length) {
+      console.log(`[TechNews] F1 filter: ${allNews.length} → ${qualityNews.length}`);
+    }
+  } catch { /* F1 optional */ }
+
+  console.log(`[TechNews] Fetched ${qualityNews.length} quality news items for "${topic}"`);
+
   // Build sources lines with scores
-  const sourcesLines = allNews.slice(0, 15).map((n, i) => {
-    const tag = n.type === 'hackernews' ? '[HN]' : n.type === 'reddit' ? '[Reddit]' : '[GitHub]';
+  const sourcesLines = qualityNews.slice(0, 15).map((n, i) => {
+    const tag = n.type === 'hackernews' ? '[HN]' : n.type === 'reddit' ? '[Reddit]' : n.type === 'arxiv' ? '[arXiv]' : '[GitHub]';
     const scoreBar = '█'.repeat(Math.min(10, Math.max(0, Math.round(n.score * 10)))) + '░'.repeat(10 - Math.min(10, Math.max(0, Math.round(n.score * 10))));
     return `**${i + 1}.** ${tag} [${n.title.slice(0, 60)}](${n.url})\n   📊 Score: **${n.score.toFixed(2)}** ${scoreBar}`;
   });
 
   const typeCounts = {};
-  for (const n of allNews) typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
+  for (const n of qualityNews) typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
   const summary = Object.entries(typeCounts).map(([t, c]) => `${t}: ${c}`).join(' | ');
-  const topScore = allNews.length > 0 ? allNews[0].score.toFixed(3) : '0';
-  const avgScore = allNews.length > 0 ? (allNews.reduce((s, n) => s + n.score, 0) / allNews.length).toFixed(3) : '0';
+  const topScore = qualityNews.length > 0 ? qualityNews[0].score.toFixed(3) : '0';
+  const avgScore = qualityNews.length > 0 ? (qualityNews.reduce((s, n) => s + n.score, 0) / qualityNews.length).toFixed(3) : '0';
 
   const embed = {
     title: `📰 Tech News: "${topic}" — ${new Date().toLocaleDateString('vi-VN')}`,
     description: [
       `🔍 **Topic:** ${topic}`,
       `🏆 **Top Score:** ${topScore} | 📊 **Avg Score:** ${avgScore}`,
-      `📦 **Total Sources:** ${allNews.length} | 📊 **By Type:** ${summary}`,
+      `📦 **Total Sources:** ${qualityNews.length} | 📊 **By Type:** ${summary}`,
       ``,
       ...sourcesLines,
     ].join('\n').slice(0, 4000),
