@@ -349,8 +349,8 @@ async function checkCatchUp() {
   if (hsRss === null || hsRss > 24) {
     console.log('[scheduler] ⚠️ RSS fetch missed! Running catch-up...');
     try {
-      const { runDailyRssFetch } = await import('./cron/daily_rss_fetch.js');
-      await runDailyRssFetch();
+      const { runNightlyScraper } = await import('./cron/nightly_scraper.js');
+      await runNightlyScraper();
       missed.push('RSS');
     } catch (err) { console.error('[scheduler] RSS catch-up failed:', err.message); }
   }
@@ -567,9 +567,9 @@ if (!IS_CLOUD_RUN) {
   rssTask = cron.schedule(RSS_CRON, async () => {
     logger.info('[scheduler] Daily RSS fetch triggered');
     try {
-      const { runDailyRssFetch } = await import('./cron/daily_rss_fetch.js');
-      const result = await runDailyRssFetch();
-      logger.info(`[scheduler] Daily RSS: ${result.articles} articles, ${result.flashcards} flashcards`);
+      const { runNightlyScraper } = await import('./cron/nightly_scraper.js');
+      const result = await runNightlyScraper();
+      logger.info(`[scheduler] Nightly scrape: ${result.stored} docs stored`);
       await saveLastRun('rss');
     } catch (err) {
       logger.error('[scheduler] Daily RSS fetch error:', err?.message || err);
