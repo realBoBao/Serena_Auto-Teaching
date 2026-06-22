@@ -42,12 +42,68 @@ async function withDb(fn) {
   }
 }
 
+// ── Difficulty progression based on solve streak ──
+// easy → after 3 days solved → medium → after 5 days → hard → after 7 days → expert
+const DIFFICULTY_THRESHOLDS = [
+  { difficulty: 'easy', minStreak: 0 },
+  { difficulty: 'medium', minStreak: 3 },
+  { difficulty: 'hard', minStreak: 8 },
+  { difficulty: 'expert', minStreak: 15 },
+];
+
+async function getCurrentDifficulty() {
+  try {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync('./vectors.db');
+    db.exec("CREATE TABLE IF NOT EXISTS algo_daily (key TEXT PRIMARY KEY, value TEXT, created_at TEXT)");
+
+    // Get solved history
+    const row = db.prepare("SELECT value FROM algo_daily WHERE key = 'solved_history'").get();
+    db.close();
+
+    if (!row?.value) return 'easy';
+
+    // Parse JSON array of dates
+    let history = [];
+    try { history = JSON.parse(row.value); } catch { return 'easy'; }
+    if (!history.length) return 'easy';
+
+    // Calculate consecutive solve streak (days in a row)
+    let streak = 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (let i = 0; i < history.length; i++) {
+      const date = new Date(history[i]);
+      date.setHours(0, 0, 0, 0);
+      const daysDiff = Math.floor((today - date) / (1000 * 60 * 60 * 24));
+      if (daysDiff === i) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    // Determine difficulty based on streak
+    let currentDiff = 'easy';
+    for (const t of DIFFICULTY_THRESHOLDS) {
+      if (streak >= t.minStreak) currentDiff = t.difficulty;
+    }
+
+    console.log(`[AlgoBot] Streak: ${streak} days → Difficulty: ${currentDiff}`);
+    return currentDiff;
+  } catch (err) {
+    console.debug('[AlgoBot] getDifficulty failed, defaulting to easy:', err.message);
+    return 'easy';
+  }
+}
+
 // ── LeetCode GraphQL API ────────────────────────────────────────────────────
 
 // Lấy random problem theo difficulty từ LeetCode
 async function fetchLeetCodeProblemByDifficulty(difficulty) {
   // Map difficulty sang LeetCode slug
-  const diffSlug = difficulty === 'easy' ? 'EASY' : difficulty === 'medium' ? 'MEDIUM' : 'HARD';
+  const diffSlug = difficulty === 'easy' ? 'EASY' : difficulty === 'medium' ? 'MEDIUM' : difficulty === 'hard' ? 'HARD' : 'HARD'; // expert = hard+
 
   const query = `query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
     problemsetQuestionList: questionList(
@@ -145,24 +201,17 @@ async function sendDailyProblem() {
   console.log('[AlgoBot] Fetching LeetCode problem...');
 
   // Ensure table exists first
-  await withDb(db => {
+  try {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync('./vectors.db');
     db.exec("CREATE TABLE IF NOT EXISTS algo_daily (key TEXT PRIMARY KEY, value TEXT, created_at TEXT)");
-  });
+    db.close();
+  } catch { /* ignore */ }
 
-  // Xác định difficulty dựa trên tier
-  const stats = await withDb(db => {
-    const row = db.prepare("SELECT value FROM algo_daily WHERE key = $key").get({ $key: 'user_stats' });
-    return row ? JSON.parse(row.value) : { tier: 1, easySolved: 0, mediumSolved: 0, hardSolved: 0 };
-  });
+  // ── Determine difficulty based on solve streak ──
+  const targetDifficulty = await getCurrentDifficulty();
 
-  const tier = stats.tier || 1;
-  const difficultyMap = { 1: 'easy', 2: 'medium', 3: 'hard', 4: 'expert' };
-  const targetDifficulty = difficultyMap[tier] || 'easy';
-
-  // Tier upgrade logic
-  if (stats.easySolved >= 30 && tier === 1) stats.tier = 2;
-  if (stats.mediumSolved >= 50 && tier === 2) stats.tier = 3;
-  if (stats.hardSolved >= 30 && tier === 3) stats.tier = 4;
+  console.log(`[AlgoBot] Target difficulty: ${targetDifficulty}`);
 
   // Fetch problem theo difficulty
   let q = await fetchLeetCodeProblemByDifficulty(targetDifficulty);
@@ -258,9 +307,24 @@ async function markSolved() {
     const db = new DatabaseSync('./vectors.db');
     db.exec("CREATE TABLE IF NOT EXISTS algo_daily (key TEXT PRIMARY KEY, value TEXT, created_at TEXT)");
     const today = new Date().toISOString().slice(0, 10);
+
+    // Mark solved for today
     db.prepare("INSERT OR REPLACE INTO algo_daily (key, value, created_at) VALUES (?, ?, ?)").run('solved', today, new Date().toISOString());
+
+    // Append to solved history for streak calculation
+    const historyRow = db.prepare("SELECT value FROM algo_daily WHERE key = 'solved_history'").get();
+    let history = [];
+    if (historyRow) {
+      try { history = JSON.parse(historyRow.value); } catch { history = []; }
+    }
+    if (!history.includes(today)) {
+      history.unshift(today); // Add to front
+      history = history.slice(0, 30); // Keep last 30 days
+      db.prepare("INSERT OR REPLACE INTO algo_daily (key, value, created_at) VALUES (?, ?, ?)").run('solved_history', JSON.stringify(history), new Date().toISOString());
+    }
+
     db.close();
-    console.log('[AlgoBot] Marked as solved.');
+    console.log(`[AlgoBot] Marked as solved. History: ${history.length} days`);
   } catch (err) {
     console.error('[AlgoBot] markSolved failed:', err.message);
   }
