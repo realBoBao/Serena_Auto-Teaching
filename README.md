@@ -1,4 +1,4 @@
-# My AI Brain — Serena, AI Robot Girl Companion
+# My AI Brain — Serena, AI Companion
 
 > Multi-agent AI system that self-learns, self-evolves, and self-secures.
 > **VPS/PM2 Production | Ponytail Optimized**
