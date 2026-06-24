@@ -232,11 +232,10 @@ async function runPipeline({ respectCooldown = true } = {}) {
 let backupModule = null;
 async function runBackup() {
   try {
-    if (!backupModule) {
-      backupModule = await import('./scripts/backup_db.js');
-    }
-    const result = await backupModule.runBackup();
-    console.log(`[scheduler] Backup completed: ${result.backupName}`);
+    // ponytail: dùng child_process thay vì import để tránh lỗi "X is not a function"
+    const { execSync } = await import('child_process');
+    const result = execSync('node scripts/backup_db.js', { encoding: 'utf8', timeout: 60000 });
+    console.log(`[scheduler] Backup completed: ${result.trim()}`);
     await saveLastRun('backup');
     eventBus?.emit('backup:complete', { topic: 'backup', ts: new Date().toISOString() });
   } catch (err) {
