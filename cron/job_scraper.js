@@ -20,7 +20,7 @@ if (!JOB_WEBHOOK) {
 async function fetchSimplifyJobs(limit = 10) {
   try {
     // SimplifyJobs GitHub repo — job postings
-    const res = await fetch('https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README.md');
+    const res = await fetch('https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/main/README.md');
     if (!res.ok) throw new Error(`SimplifyJobs ${res.status}`);
     const text = await res.text();
     // Parse markdown table
@@ -93,18 +93,6 @@ async function fetchWeWorkRemotely(limit = 10) {
 async function main() {
   console.log('[JobScraper] Fetching job postings...');
 
-  // ── Dedup: Load seen URLs from SQLite TRƯỚC khi fetch ──
-  let seenUrls = new Set();
-  try {
-    const { DatabaseSync } = await import('node:sqlite');
-    const db = new DatabaseSync('./vectors.db');
-    db.exec('CREATE TABLE IF NOT EXISTS sent_jobs (url TEXT PRIMARY KEY, sent_at TEXT)');
-    const rows = db.prepare('SELECT url FROM sent_jobs').all();
-    seenUrls = new Set(rows.map(r => r.url));
-    db.close();
-    console.log(`[JobScraper] Loaded ${seenUrls.size} seen job URLs from DB`);
-  } catch { /* ignore */ }
-
   const [simplify, remoteok, wework] = await Promise.all([
     fetchSimplifyJobs(10),
     fetchRemoteOK(10),
@@ -133,8 +121,8 @@ async function main() {
 
   function isRelevant(title = '', company = '', role = '') {
     const text = (title + ' ' + company + ' ' + role).toLowerCase();
-    const hasRequired = REQUIRED_KEYWORDS.some(k => text.includes(k));
-    const hasExcluded = EXCLUDE_KEYWORDS.some(k => text.includes(k));
+    const hasRequired = REQUIRED_KEYWORDS.some(k => new RegExp(`\\b${k.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'i').test(text));
+    const hasExcluded = EXCLUDE_KEYWORDS.some(k => new RegExp(`\\b${k.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'i').test(text));
     return hasRequired && !hasExcluded;
   }
 
@@ -145,26 +133,34 @@ async function main() {
     console.log(`[JobScraper] Filtered: ${rawJobs.length} → ${filteredJobs.length} (removed ${rawJobs.length - filteredJobs.length} irrelevant)`);
   }
 
-  // ── Dedup: Loại bỏ jobs đã gửi (file-based + SQLite) ──
-  const JOB_SENT_PATH = './data/job_sent.json';
-  let jobSentHistory = { urls: {}, titles: {} };
+  // ── Dedup: Chống gửi trùng bằng cách đọc Lịch sử Discord (Cloud-safe) ──
+  console.log(`[JobScraper] Đang kiểm tra lịch sử Discord để lọc trùng...`);
+  const sentUrls = new Set();
   try {
-    const { readFileSync } = require('fs');
-    jobSentHistory = JSON.parse(readFileSync(JOB_SENT_PATH, 'utf8'));
-  } catch { /* ignore */ }
+    const webhookMatch = JOB_WEBHOOK.match(/webhooks\/(\d+)\//);
+    if (webhookMatch) {
+      const channelId = webhookMatch[1];
+      const histRes = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages?limit=100`, {
+        headers: { 'Authorization': `Bot ${process.env.DISCORD_BOT_TOKEN}` },
+      });
+      if (histRes.ok) {
+        const messages = await histRes.json();
+        messages.forEach(msg => {
+          (msg.embeds || []).forEach(embed => {
+            const desc = embed.description || '';
+            // Rút trích tất cả URL trong markdown [Apply](url)
+            const links = [...desc.matchAll(/\[Apply\]\((https?:\/\/[^\)]+)\)/g)];
+            links.forEach(match => sentUrls.add(match[1]));
+          });
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[JobScraper] Lỗi đọc Discord History:', err.message);
+  }
 
-  const sentUrlSet = new Set(Object.keys(jobSentHistory.urls));
-  const sentTitleSet = new Set(Object.keys(jobSentHistory.titles));
-
-  // Merge SQLite seen URLs
-  for (const url of seenUrls) sentUrlSet.add(url);
-
-  const dedupedJobs = filteredJobs.filter(j => {
-    if (sentUrlSet.has(j.link || '')) return false;
-    const titleKey = (`${j.company} — ${j.role}`).trim().toLowerCase();
-    if (sentTitleSet.has(titleKey)) return false;
-    return true;
-  });
+  // Lọc ra những job chưa từng xuất hiện trong 100 tin nhắn gần nhất
+  const dedupedJobs = filteredJobs.filter(j => !sentUrls.has(j.link || ''));
 
   if (dedupedJobs.length < filteredJobs.length) {
     console.log(`[JobScraper] Dedup: ${filteredJobs.length} → ${dedupedJobs.length} (removed already sent)`);
@@ -213,31 +209,6 @@ async function main() {
 
     if (res.ok) {
       console.log('[JobScraper] ✅ Webhook sent successfully');
-      // Save sent jobs to file-based history + SQLite
-      try {
-        const today = new Date().toISOString().slice(0, 10);
-        for (const j of dedupedJobs) {
-          if (j.link) jobSentHistory.urls[j.link] = today;
-          jobSentHistory.titles[(`${j.company} — ${j.role}`).trim().toLowerCase()] = today;
-        }
-        // Prune 7 ngày
-        const cutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-        for (const k of Object.keys(jobSentHistory.urls)) { if (jobSentHistory.urls[k] < cutoff) delete jobSentHistory.urls[k]; }
-        for (const k of Object.keys(jobSentHistory.titles)) { if (jobSentHistory.titles[k] < cutoff) delete jobSentHistory.titles[k]; }
-        const { writeFileSync, mkdirSync } = require('fs');
-        mkdirSync('./data', { recursive: true });
-        writeFileSync(JOB_SENT_PATH, JSON.stringify(jobSentHistory, null, 2));
-        console.log(`[JobScraper] Saved ${dedupedJobs.length} jobs to sent history`);
-      } catch (saveErr) { /* ignore */ }
-      // Also save to SQLite
-      try {
-        const { DatabaseSync } = await import('node:sqlite');
-        const db = new DatabaseSync('./vectors.db');
-        db.exec('CREATE TABLE IF NOT EXISTS sent_jobs (url TEXT PRIMARY KEY, sent_at TEXT)');
-        const stmt = db.prepare("INSERT OR IGNORE INTO sent_jobs (url, sent_at) VALUES (?, datetime('now'))");
-        for (const j of dedupedJobs) { stmt.run(j.link || j.title); }
-        db.close();
-      } catch { /* ignore */ }
     } else {
       console.error('[JobScraper] ❌ Webhook failed:', res.status, await res.text());
     }
@@ -248,5 +219,4 @@ async function main() {
 
 main().catch(err => {
   console.error('[JobScraper] Fatal:', err.message);
-  process.exit(0); // Exit 0 to avoid GitHub Actions failure
 });
