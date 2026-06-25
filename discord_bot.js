@@ -211,7 +211,11 @@ client.on(Events.ShardDisconnect, (event, shardId) => {
   const reason = event?.reason || '';
   console.warn(`Discord shard ${shardId} disconnected:`, code, reason);
   if (code === 4014) {
-    console.warn('Discord rejected a privileged intent. Enable Message Content Intent for this bot, or remove MessageContent and switch to slash commands.');
+    console.error('❌ Discord rejected MESSAGE CONTENT INTENT.');
+    console.error('   Fix: discord.com/developers/applications → Bot → Privileged Gateway Intents → Enable Message Content Intent');
+    console.error('   Bot will not reconnect until intent is enabled.');
+    // Thoát hẳn để PM2 log rõ error thay vì loop vô ích
+    process.exit(1);
   } else if (code !== 1000) {
     // Auto-reconnect for non-clean disconnects (code 1000 = normal close)
     console.log(`[Discord] Attempting auto-reconnect for shard ${shardId} in 5s...`);
