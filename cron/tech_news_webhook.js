@@ -11,6 +11,7 @@
 
 import 'dotenv/config';
 import { httpGet, httpScrape, fetchText } from '../lib/http_client.js';
+import { filterQuality, formatQualityBar } from '../lib/content_quality.js';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 
 const TECH_WEBHOOK = process.env.TECH_WEBHOOK_URL;
@@ -154,11 +155,22 @@ async function main() {
     console.log('[TechNews] No new sources today — skip (no duplicate send)');
     return;
   }
-  all.sort((a, b) => b.score - a.score);
+
+  // ── Quality filter (remove low-quality sources) ──
+  const beforeQuality = all.length;
+  all = filterQuality(all, 0.35);
+  if (all.length < beforeQuality) {
+    console.log(`[TechNews] Quality: ${beforeQuality} → ${all.length} (removed ${beforeQuality - all.length} low-quality)`);
+  }
+
+  if (!all.length) {
+    console.log('[TechNews] All items filtered by quality — skip');
+    return;
+  }
 
   const lines = all.slice(0, 15).map((n, i) => {
-    const bar = '█'.repeat(Math.round(n.score * 10)) + '░'.repeat(10 - Math.round(n.score * 10));
-    return `**${i + 1}.** [${n.src}] [${n.title.slice(0, 60)}](${n.url})\n   📊 ${n.score.toFixed(2)} ${bar}`;
+    const bar = formatQualityBar(n.quality.score);
+    return `**${i + 1}.** ${n.quality.tag} [${n.src}] [${n.title.slice(0, 60)}](${n.url})\n   📊 Quality: ${bar}`;
   });
 
   const types = {};

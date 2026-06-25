@@ -10,6 +10,7 @@ import 'dotenv/config';
 import fs from 'fs/promises';
 import path from 'path';
 import { httpGet, httpPost } from '../lib/http_client.js';
+import { scoreContent, formatQualityBar } from '../lib/content_quality.js';
 
 const ALGO_WEBHOOK_URL = process.env.ALGO_WEBHOOK_URL;
 if (!ALGO_WEBHOOK_URL) {
@@ -160,12 +161,16 @@ async function sendDailyProblem() {
   const content = q.content?.replace(/<[^>]+>/g, '').slice(0, 1000) || 'Xem đề bài tại link bên dưới.';
   const link = `https://leetcode.com/problems/${q.titleSlug}/`;
 
+  // ── Quality score ──
+  const quality = scoreContent({ title, url: link, source: 'LeetCode', description: content });
+  console.log(`[AlgoBot] Quality: ${quality.score} (${quality.level}) ${quality.tag}`);
+
   // ── Gửi Webhook: Nhúng thẳng đáp án dưới dạng Spoiler ──
   const payload = {
     embeds: [{
       color: difficulty === 'Easy' ? 0x22c55e : difficulty === 'Medium' ? 0xf59e0b : 0xff0000,
       title: `🧠 Daily Algorithm — ${title}`,
-      description: `**Difficulty:** ${difficulty}\n**Tags:** ${tags}\n\n${content.slice(0, 500)}\n\n[📝 Bấm vào đây để Giải](${link})\n\n💡 **Đáp án (Click để xem):** ||[Xem Solution Code trên LeetCode](${link}editorial/)||`,
+      description: `**Difficulty:** ${difficulty}\n**Tags:** ${tags}\n📊 **Quality:** ${quality.tag} ${formatQualityBar(quality.score)}\n\n${content.slice(0, 500)}\n\n[📝 Bấm vào đây để Giải](${link})\n\n💡 **Đáp án (Click để xem):** ||[Xem Solution Code trên LeetCode](${link}editorial/)||`,
       footer: { text: 'Không cần gõ !done nữa, hãy tự giác học tập nhé!' },
       timestamp: new Date().toISOString(),
     }],

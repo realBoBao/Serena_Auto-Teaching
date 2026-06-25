@@ -12,6 +12,7 @@
 import 'dotenv/config';
 import { httpGet, httpPost, httpScrape } from '../lib/http_client.js';
 import { getDb, runQuery } from '../lib/db.js';
+import { filterQuality, formatQualityBar } from '../lib/content_quality.js';
 
 const JOB_WEBHOOK = process.env.JOB_WEBHOOK_URL;
 
@@ -399,28 +400,42 @@ async function main() {
     return;
   }
 
-  console.log(`[JobScraper] Gửi ${dedupedJobs.length} job mới...`);
+  // ── Quality filter (remove low-quality jobs) ──
+  const beforeQuality = dedupedJobs.length;
+  const qualityJobs = filterQuality(dedupedJobs, 0.35);
+  if (qualityJobs.length < beforeQuality) {
+    console.log(`[JobScraper] Quality: ${beforeQuality} → ${qualityJobs.length} (removed ${beforeQuality - qualityJobs.length} low-quality)`);
+  }
+
+  if (qualityJobs.length === 0) {
+    console.log('[JobScraper] All jobs filtered by quality — skip');
+    return;
+  }
+
+  console.log(`[JobScraper] Gửi ${qualityJobs.length} job chất lượng cao...`);
 
   // Build Discord embed
   const jobsByType = {};
-  for (const j of dedupedJobs) {
+  for (const j of qualityJobs) {
     if (!jobsByType[j.source]) jobsByType[j.source] = [];
     jobsByType[j.source].push(j);
   }
 
   const summary = Object.entries(jobsByType).map(([s, jobs]) => `${s}: ${jobs.length}`).join(' | ');
 
-  const jobLines = dedupedJobs.slice(0, 15).map((j, i) => {
+  const jobLines = qualityJobs.slice(0, 15).map((j, i) => {
     const link = j.link && j.link !== '#' ? `[Apply](${j.link})` : '';
-    return `**${i + 1}.** [${j.source}] **${j.company}** — ${j.role} (${j.location}) ${link}`;
+    const qTag = j.quality ? j.quality.tag : '';
+    return `**${i + 1}.** ${qTag} [${j.source}] **${j.company}** — ${j.role} (${j.location}) ${link}`;
   });
 
   // Use PDT date for consistency
   const pdtDate = new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const avgQuality = (qualityJobs.reduce((s, j) => s + (j.quality?.score || 0), 0) / qualityJobs.length * 100).toFixed(0);
   const embed = {
     title: `💼 Job Alerts — ${pdtDate}`,
     description: [
-      `📦 **Total Jobs:** ${dedupedJobs.length} | 📊 **By Source:** ${summary}`,
+      `📦 **Total:** ${qualityJobs.length} | 📊 **By Source:** ${summary} | ⭐ **Avg Quality:** ${avgQuality}%`,
       ``,
       ...jobLines,
     ].join('\n').slice(0, 4000),
@@ -438,12 +453,12 @@ async function main() {
     if (res.ok) {
       console.log('[JobScraper] ✅ Webhook sent successfully');
       // Lưu URL đã gửi vào DB
-      for (const j of dedupedJobs) {
+      for (const j of qualityJobs) {
         try {
           await runQuery(db, 'INSERT OR IGNORE INTO sent_jobs (url) VALUES (?)', [j.link || '']);
         } catch { /* ignore dup */ }
       }
-      console.log(`[JobScraper] ✅ Đã lưu ${dedupedJobs.length} URLs vào DB`);
+      console.log(`[JobScraper] ✅ Đã lưu ${qualityJobs.length} URLs vào DB`);
     } else {
       console.error('[JobScraper] ❌ Webhook failed:', res.status, await res.text());
     }
