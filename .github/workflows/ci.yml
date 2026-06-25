@@ -63,6 +63,16 @@ jobs:
     needs: [test, security]
     if: github.ref == 'refs/heads/main'
     steps:
+      - name: Test SSH connectivity
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.GCP_HOST }}
+          username: ${{ secrets.GCP_USERNAME }}
+          key: ${{ secrets.GCP_SSH_KEY }}
+          port: ${{ secrets.GCP_SSH_PORT || '22' }}
+          timeout: 30s
+          script: echo "SSH OK at $(date)"
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -71,6 +81,8 @@ jobs:
           key: ${{ secrets.GCP_SSH_KEY }}
           port: ${{ secrets.GCP_SSH_PORT || '22' }}
           timeout: 300s
+          command_timeout: 300s
+          debug: true
           script: |
             set -e
             echo "=== Deploy at $(date) ==="
