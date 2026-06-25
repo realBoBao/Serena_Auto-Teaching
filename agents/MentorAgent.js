@@ -14,7 +14,7 @@
 
 import { executeCode } from '../lib/code_sandbox.js';
 import { invokeLlm } from '../lib/llm.js';
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage } from '../lib/langchain_bridge.js';
 import { getLogger } from '../lib/logger.js';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';

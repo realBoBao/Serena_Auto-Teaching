@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage } from '../lib/langchain_bridge.js';
 import fs from 'fs';
 import path from 'path';
 

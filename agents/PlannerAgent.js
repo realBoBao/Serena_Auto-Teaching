@@ -7,7 +7,7 @@
 
 import { ask as llmAsk } from '../lib/llm.js';
 import { getLogger } from '../lib/logger.js';
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage } from '../lib/langchain_bridge.js';
 import { searchResources, getByCategory } from '../lib/devops_db.js';
 import { generateRoadmap, saveRoadmap, getRoadmap, listRoadmaps } from '../lib/roadmap_engine.js';
 

@@ -21,7 +21,7 @@
  * - Sandbox timeout (5s per execution)
  */
 
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage } from '../lib/langchain_bridge.js';
 import { invokeLlm } from '../lib/llm.js';
 import { solveWithDebugLoop } from './CoderAgent.js';
 import { withTimeout, TimeoutError } from '../lib/with_timeout.js';

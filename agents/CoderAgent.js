@@ -22,7 +22,7 @@
 
 import { executeCode, getSupportedLanguages } from '../lib/code_sandbox.js';
 import { invokeLlm } from '../lib/llm.js';
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage } from '../lib/langchain_bridge.js';
 import { getLogger } from '../lib/logger.js';
 import { totSolve } from '../lib/tot_mcts.js';
 import { detectAlgorithm, runTests } from '../lib/test_harness.js';

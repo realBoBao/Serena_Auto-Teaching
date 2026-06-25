@@ -6,7 +6,7 @@
 
 import { invokeLlm } from '../lib/llm.js';
 import { getLogger } from '../lib/logger.js';
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage } from '../lib/langchain_bridge.js';
 import { embedText } from '../lib/embeddings.js';
 
 const logger = getLogger('GraphAgent');

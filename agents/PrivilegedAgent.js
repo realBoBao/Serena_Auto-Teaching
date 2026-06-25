@@ -20,7 +20,7 @@
 
 import { executeCode, getSupportedLanguages } from '../lib/code_sandbox.js';
 import { invokeLlm } from '../lib/llm.js';
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage } from '../lib/langchain_bridge.js';
 import { getLogger } from '../lib/logger.js';
 import { readFile, writeFile, readdir, stat, mkdir, unlink, rename } from 'fs/promises';
 import path from 'path';
