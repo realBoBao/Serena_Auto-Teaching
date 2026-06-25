@@ -63,7 +63,7 @@ jobs:
     needs: [test, security]
     if: github.ref == 'refs/heads/main'
     steps:
-      - name: Test SSH connectivity
+      - name: Diagnose VPS SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.GCP_HOST }}
@@ -71,7 +71,22 @@ jobs:
           key: ${{ secrets.GCP_SSH_KEY }}
           port: ${{ secrets.GCP_SSH_PORT || '22' }}
           timeout: 30s
-          script: echo "SSH OK at $(date)"
+          script: |
+            echo "=== VPS SSH Diagnostics ==="
+            echo "Hostname: $(hostname)"
+            echo "User: $(whoami)"
+            echo "--- sshd status ---"
+            sudo systemctl status sshd --no-pager 2>&1 || echo "sshd not found"
+            echo "--- port 22 ---"
+            sudo ss -tlnp | grep :22 || echo "Nothing listening on :22"
+            echo "--- firewall ---"
+            sudo ufw status 2>&1 || echo "ufw not installed"
+            echo "--- authorized_keys ---"
+            wc -l ~/.ssh/authorized_keys 2>&1 || echo "No authorized_keys"
+            echo "--- disk ---"
+            df -h / | tail -1
+            echo "--- memory ---"
+            free -h | head -2
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
