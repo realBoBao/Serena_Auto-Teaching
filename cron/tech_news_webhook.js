@@ -11,6 +11,7 @@
 
 import 'dotenv/config';
 import { httpGet, httpScrape, fetchText } from '../lib/http_client.js';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 
 const TECH_WEBHOOK = process.env.TECH_WEBHOOK_URL || process.env.DISCORD_WEBHOOK;
 if (!TECH_WEBHOOK) { console.error('❌ TECH_WEBHOOK_URL not set'); process.exit(1); }
@@ -28,14 +29,12 @@ const SENT_HISTORY_PATH = './data/tech_news_sent.json';
 
 function loadSentHistory() {
   try {
-    const { readFileSync } = require('fs');
     return JSON.parse(readFileSync(SENT_HISTORY_PATH, 'utf8'));
   } catch { return { topics: {}, urls: {} }; }
 }
 
 function saveSentHistory(history) {
   try {
-    const { writeFileSync, mkdirSync } = require('fs');
     mkdirSync('./data', { recursive: true });
     writeFileSync(SENT_HISTORY_PATH, JSON.stringify(history, null, 2));
   } catch { /* ignore */ }
