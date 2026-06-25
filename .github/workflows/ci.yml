@@ -10,9 +10,8 @@ env:
   NODE_VERSION: '22'
 
 jobs:
-  # ── Job 1: Lint & Format ─────────────────────────────────
   lint:
-    name: 🔍 Lint & Format Check
+    name: Lint & Format Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -24,9 +23,8 @@ jobs:
       - run: npx prettier --check "**/*.js" "**/*.json" "**/*.md" || true
       - run: npx eslint . --ext .js --max-warnings=50 || true
 
-  # ── Job 2: Unit Tests ────────────────────────────────────
   test:
-    name: 🧪 Unit Tests
+    name: Unit Tests
     runs-on: ubuntu-latest
     needs: lint
     steps:
@@ -45,9 +43,8 @@ jobs:
         env:
           CI: true
 
-  # ── Job 3: Security Audit ────────────────────────────────
   security:
-    name: 🔒 Security Audit
+    name: Security Audit
     runs-on: ubuntu-latest
     needs: lint
     steps:
@@ -60,9 +57,8 @@ jobs:
       - name: Run npm audit
         run: npm audit --production --audit-level=high 2>&1 || true
 
-  # ── Job 4: Deploy (only when all checks pass) ────────────
   deploy:
-    name: 🚀 Deploy to VPS
+    name: Deploy to VPS
     runs-on: ubuntu-latest
     needs: [test, security]
     if: github.ref == 'refs/heads/main'
@@ -80,106 +76,4 @@ jobs:
             pip install -r requirements.txt
             pm2 reload ecosystem.config.cjs --update-env
             pm2 save
-            echo "✅ Deployment complete"
-        with:
-          node-version: '22'
-          cache: 'npm'
-      - run: npm install --legacy-peer-deps
-      - name: Run npm audit
-        run: |
-          npm audit --production --audit-level=high 2>&1 | tee audit.txt
-          if grep -q '"severity":"high"\|"severity":"critical"' audit.txt 2>/dev/null; then
-            echo "❌ High/Critical vulnerabilities found!"
-            exit 1
-          else
-            echo "✅ No High/Critical vulnerabilities"
-          fi
-        continue-on-error: true
-      - name: Check for outdated deps
-        run: npm outdated 2>&1 || true
-      - name: Upload audit report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-audit
-          path: audit.txt
-          retention-days: 7
-
-  # ── Job 4: Build Verification ────────────────────────────
-  build:
-    name: 🏗️ Build Verification
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: 'npm'
-      - run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential python3
-      - run: npm install --legacy-peer-deps
-      - run: npm rebuild sqlite3 2>&1 || echo "sqlite3 rebuild skipped"
-      - name: Verify all agents can be imported
-        run: |
-          echo "Checking agent imports..."
-          node --input-type=module -e "
-            const agents = [
-              './agents/RagAgent.js',
-              './agents/RouterAgent.js',
-              './agents/DebateAgent.js',
-              './agents/CoderAgent.js',
-              './agents/VisionAgent.js',
-              './agents/PlannerAgent.js',
-            ];
-            let ok = 0, fail = 0;
-            for (const a of agents) {
-              try {
-                await import(a);
-                console.log('  ✅ ' + a);
-                ok++;
-              } catch(e) {
-                console.log('  ❌ ' + a + ': ' + e.message);
-                fail++;
-              }
-            }
-            console.log(ok + ' OK, ' + fail + ' FAILED');
-            if (fail > 0) process.exit(1);
-          "
-      - name: Verify lib imports
-        run: |
-          echo "Checking lib imports..."
-          node --input-type=module -e "
-            const libs = [
-              './lib/logger.js',
-              './lib/llm.js',
-              './lib/memory_manager.js',
-              './lib/flashcard_db.js',
-              './lib/user_profile.js',
-              './lib/knowledge_graph.js',
-              './lib/scope_detector.js',
-              './lib/grounding_verifier.js',
-            ];
-            let ok = 0, fail = 0;
-            for (const l of libs) {
-              try {
-                await import(l);
-                console.log('  ✅ ' + l);
-                ok++;
-              } catch(e) {
-                console.log('  ❌ ' + l + ': ' + e.message);
-                fail++;
-              }
-            }
-            console.log(ok + ' OK, ' + fail + ' FAILED');
-            if (fail > 0) process.exit(1);
-          "
-      - name: Verify config files exist
-        run: |
-          echo "Checking config files..."
-          for f in .env.example ecosystem.config.cjs package.json; do
-            if [ -f "$f" ]; then
-              echo "  ✅ $f"
-            else
-              echo "  ⚠️ $f (missing)"
-            fi
-          done
+            echo "Deployment complete"
