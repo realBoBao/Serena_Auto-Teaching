@@ -135,18 +135,24 @@ async function fetchHackerNewsHiring(limit = 15) {
     if (!threadRes.ok) throw new Error(`HN thread ${threadRes.status}`);
     const thread = await threadRes.json();
 
-    // Lấy comments (mỗi comment = 1 job posting) — sequential với delay để tránh rate limit
-    const commentIds = (thread.kids || []).slice(0, limit * 2);
+    // Lấy comments (mỗi comment = 1 job posting) — sequential với delay
+    const commentIds = (thread.kids || []).slice(0, limit);
     const comments = [];
-    for (const id of commentIds) {
+    for (let i = 0; i < commentIds.length; i++) {
+      const id = commentIds[i];
       try {
-        const r = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const r = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, { signal: controller.signal });
+        clearTimeout(timeout);
         const data = await r.json();
         if (data) comments.push(data);
       } catch { /* skip bad comments */ }
-      // Polite delay: 100ms giữa mỗi request
-      await new Promise(res => setTimeout(res, 100));
+      // Progress log mỗi 10 comments
+      if ((i + 1) % 10 === 0) console.log(`[HN] Fetched ${i + 1}/${commentIds.length} comments...`);
+      await new Promise(res => setTimeout(res, 50));
     }
+    console.log(`[HN] Done: ${comments.length} valid comments from ${commentIds.length} IDs`);
 
     const techKeywords = ['backend', 'node', 'devops', 'fullstack', 'software engineer', 'swe', 'api', 'distributed', 'microservices', 'cloud', 'infrastructure', 'javascript', 'typescript', 'python', 'kubernetes', 'docker'];
     return comments
@@ -230,16 +236,18 @@ async function fetchPlaceholderJobs(limit = 10) {
 }
 
 async function main() {
+  const startTime = Date.now();
   console.log('[JobScraper] Fetching job postings...');
 
   const [simplify, newgrad, hn, remoteok, wework, freeJobs] = await Promise.all([
-    fetchSimplifyJobs(10),
-    fetchNewGradPositions(10),
-    fetchHackerNewsHiring(15),
-    fetchRemoteOK(10),
-    fetchWeWorkRemotely(10),
-    fetchAllFreeJobs(8).catch(() => []),
+    fetchSimplifyJobs(10).then(r => { console.log(`[SimplifyJobs] ${r.length} jobs (${Date.now() - startTime}ms)`); return r; }),
+    fetchNewGradPositions(10).then(r => { console.log(`[NewGradPositions] ${r.length} jobs (${Date.now() - startTime}ms)`); return r; }),
+    fetchHackerNewsHiring(15).then(r => { console.log(`[HackerNews] ${r.length} jobs (${Date.now() - startTime}ms)`); return r; }),
+    fetchRemoteOK(10).then(r => { console.log(`[RemoteOK] ${r.length} jobs (${Date.now() - startTime}ms)`); return r; }),
+    fetchWeWorkRemotely(10).then(r => { console.log(`[WeWorkRemotely] ${r.length} jobs (${Date.now() - startTime}ms)`); return r; }),
+    fetchAllFreeJobs(8).catch(() => []).then(r => { console.log(`[FreeAPI] ${r.length} jobs (${Date.now() - startTime}ms)`); return r; }),
   ]);
+  console.log(`[JobScraper] All sources fetched in ${Date.now() - startTime}ms`);
 
   // ── Normalize free API jobs ──
   const normalizedFree = mapJobs(freeJobs, 'FreeAPI');
