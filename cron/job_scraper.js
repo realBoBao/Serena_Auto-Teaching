@@ -11,7 +11,7 @@
 
 import 'dotenv/config';
 import { httpGet, httpPost, httpScrape } from '../lib/http_client.js';
-import { getDb, runQuery } from '../lib/db.js';
+import { runQuery, getOne, getAll } from '../lib/db.js';
 import { scoreContent, formatQualityBar } from '../lib/content_quality.js';
 
 const JOB_WEBHOOK = process.env.JOB_WEBHOOK_URL;
@@ -362,10 +362,9 @@ async function main() {
 
   // ── Dedup: Dùng SQLite DB để lọc trùng (không phụ thuộc Discord API) ──
   console.log(`[JobScraper] Kiểm tra SQLite DB để lọc trùng...`);
-  const db = await getDb();
   
   // Tạo bảng sent_jobs nếu chưa có
-  await runQuery(db, `
+  await runQuery(`
     CREATE TABLE IF NOT EXISTS sent_jobs (
       url TEXT PRIMARY KEY,
       sent_at TEXT DEFAULT (datetime('now'))
@@ -373,7 +372,7 @@ async function main() {
   `);
 
   // Query tất cả URL đã gửi trong 7 ngày qua
-  const sentRows = await runQuery(db, 
+  const sentRows = await getAll(
     "SELECT url FROM sent_jobs WHERE sent_at >= datetime('now', '-7 days')"
   );
   const sentUrls = new Set(sentRows.map(r => r.url));
@@ -448,7 +447,7 @@ async function main() {
       // Lưu URL đã gửi vào DB
       for (const j of dedupedJobs) {
         try {
-          await runQuery(db, 'INSERT OR IGNORE INTO sent_jobs (url) VALUES (?)', [j.link || '']);
+          await runQuery('INSERT OR IGNORE INTO sent_jobs (url) VALUES (?)', [j.link || '']);
         } catch { /* ignore dup */ }
       }
       console.log(`[JobScraper] ✅ Đã lưu ${dedupedJobs.length} URLs vào DB`);
