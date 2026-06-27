@@ -222,23 +222,22 @@ async function fetchWeWorkRemotely(limit = 10) {
   }
 }
 
-// ── Indeed: Bỏ (block hoàn toàn trên VPS)
-// ponytail: Indeed RSS bị VPS block (403/429), cần Publisher API key
-// Upgrade: set INDEED_PUBLISHER_KEY trong .env nếu muốn dùng Indeed API
-async function fetchIndeedJobs(limit = 10) {
+// ── Greenhouse / Lever / Indeed: Bỏ (khong con public API)
+// ponytail: Greenhouse bo JSON-LD, Lever 404, Indeed bi VPS block
+// Upgrade: dung Indeed Publisher API key hoac paid ATS access
+async function fetchPlaceholderJobs(limit = 10) {
   return [];
 }
 
 async function main() {
   console.log('[JobScraper] Fetching job postings...');
 
-  const [simplify, newgrad, hn, remoteok, wework, indeed, freeJobs] = await Promise.all([
+  const [simplify, newgrad, hn, remoteok, wework, freeJobs] = await Promise.all([
     fetchSimplifyJobs(10),
     fetchNewGradPositions(10),
     fetchHackerNewsHiring(15),
     fetchRemoteOK(10),
     fetchWeWorkRemotely(10),
-    fetchIndeedJobs(10),
     fetchAllFreeJobs(8).catch(() => []),
   ]);
 
@@ -272,7 +271,7 @@ async function main() {
     return hasRequired && !hasExcluded;
   }
 
-  const rawJobs = [...simplify, ...newgrad, ...hn, ...remoteok, ...wework, ...indeed, ...normalizedFree];
+  const rawJobs = [...simplify, ...newgrad, ...hn, ...remoteok, ...wework, ...normalizedFree];
   const filteredJobs = rawJobs.filter(j => isRelevant(j.title, j.company, j.role));
 
   if (filteredJobs.length < rawJobs.length) {
