@@ -12,7 +12,7 @@
 import 'dotenv/config';
 import { httpGet, httpScrape, fetchText } from '../lib/http_client.js';
 import { scoreContent, formatQualityBar } from '../lib/content_quality.js';
-import { getDb, runQuery } from '../lib/db.js';
+import { runQuery, getOne, getAll } from '../lib/db.js';
 
 const TECH_WEBHOOK = process.env.TECH_WEBHOOK_URL;
 if (!TECH_WEBHOOK) {
@@ -31,8 +31,7 @@ const TECH_TOPICS = [
 
 // ── Dedup: SQLite DB (survives restarts, unlike file-based) ──
 async function ensureDedupTable() {
-  const db = await getDb();
-  await runQuery(db, `CREATE TABLE IF NOT EXISTS sent_news (url TEXT PRIMARY KEY, sent_at TEXT DEFAULT (datetime('now')))`);
+  await runQuery(`CREATE TABLE IF NOT EXISTS sent_news (url TEXT PRIMARY KEY, sent_at TEXT DEFAULT (datetime('now')))`);
 }
 
 async function isTopicSentToday(topic) {
@@ -41,11 +40,15 @@ async function isTopicSentToday(topic) {
   return false;
 }
 
+async function wasUrlSentRecently(url) {
+  const row = await getOne('SELECT 1 FROM sent_news WHERE url = ? AND sent_at >= datetime(\'now\', \'-7 days\')', [url]);
+  return !!row;
+}
+
 async function recordSentTopic(topic, urls) {
-  const db = await getDb();
-  await runQuery(db, 'INSERT OR IGNORE INTO sent_news (url, sent_at) VALUES (?, ?)', [`topic:${topic}`, new Date().toISOString()]);
+  await runQuery('INSERT OR IGNORE INTO sent_news (url, sent_at) VALUES (?, ?)', [`topic:${topic}`, new Date().toISOString()]);
   for (const url of urls) {
-    if (url) await runQuery(db, 'INSERT OR IGNORE INTO sent_news (url, sent_at) VALUES (?, ?)', [url, new Date().toISOString()]);
+    if (url) await runQuery('INSERT OR IGNORE INTO sent_news (url, sent_at) VALUES (?, ?)', [url, new Date().toISOString()]);
   }
 }
 
@@ -125,8 +128,7 @@ async function main() {
   });
 
   // ── Inter-run URL dedup via SQLite ──
-  const db = await getDb();
-  const sentRows = await runQuery(db, "SELECT url FROM sent_news WHERE sent_at >= datetime('now', '-7 days')");
+  const sentRows = await getAll("SELECT url FROM sent_news WHERE sent_at >= datetime('now', '-7 days')");
   const sentUrls = new Set(sentRows.map(r => r.url));
   if (sentUrls.size > 0) {
     const before = all.length;
