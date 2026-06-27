@@ -14,6 +14,29 @@ import { httpGet, httpPost, httpScrape } from '../lib/http_client.js';
 import { runQuery, getOne, getAll } from '../lib/db.js';
 import { scoreContent, formatQualityBar } from '../lib/content_quality.js';
 
+// ── Concurrency Control ────────────────────────────────────────────
+const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+
+/**
+ * Fetch với concurrency limit và polite delay
+ * @param {Array} items - Danh sách items cần fetch
+ * @param {Function} fn - Hàm fetch(item) => Promise
+ * @param {Object} opts - { concurrency: number, delayMs: number }
+ */
+async function fetchWithConcurrency(items, fn, { concurrency = 3, delayMs = 200 } = {}) {
+  const results = [];
+  const chunks = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    chunks.push(items.slice(i, i + concurrency));
+  }
+  for (const chunk of chunks) {
+    const chunkResults = await Promise.all(chunk.map(fn));
+    results.push(...chunkResults.filter(Boolean));
+    await sleep(delayMs);
+  }
+  return results;
+}
+
 const JOB_WEBHOOK = process.env.JOB_WEBHOOK_URL;
 
 if (!JOB_WEBHOOK) {
@@ -110,13 +133,18 @@ async function fetchHackerNewsHiring(limit = 15) {
     if (!threadRes.ok) throw new Error(`HN thread ${threadRes.status}`);
     const thread = await threadRes.json();
 
-    // Lấy comments (mỗi comment = 1 job posting)
-    const commentIds = (thread.kids || []).slice(0, limit * 2); // lấy nhiều hơn để filter
-    const comments = await Promise.all(
-      commentIds.map(id =>
-        fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r => r.json())
-      )
-    );
+    // Lấy comments (mỗi comment = 1 job posting) — sequential với delay để tránh rate limit
+    const commentIds = (thread.kids || []).slice(0, limit * 2);
+    const comments = [];
+    for (const id of commentIds) {
+      try {
+        const r = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
+        const data = await r.json();
+        if (data) comments.push(data);
+      } catch { /* skip bad comments */ }
+      // Polite delay: 100ms giữa mỗi request
+      await new Promise(res => setTimeout(res, 100));
+    }
 
     const techKeywords = ['backend', 'node', 'devops', 'fullstack', 'software engineer', 'swe', 'api', 'distributed', 'microservices', 'cloud', 'infrastructure', 'javascript', 'typescript', 'python', 'kubernetes', 'docker'];
     return comments
